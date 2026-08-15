@@ -2,8 +2,7 @@
 
 internal static class TextDrawing
 {
-    // draws straight from a span, so names come out of the character arena and numbers out of a stack buffer,
-    // without a string ever being created.
+    // draws straight from a span, so names come out of the character arena and numbers out of a stack buffer, without a string ever being created.
     public static unsafe void Draw(
         IComObject<ID2D1DeviceContext> deviceContext,
         ReadOnlySpan<char> text,

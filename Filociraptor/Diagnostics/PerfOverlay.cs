@@ -9,7 +9,7 @@ internal sealed class PerfOverlay
     private const float _budgetMilliseconds = 16.67f;
     private const int _lineCount = 8;
 
-    public bool Visible { get; set; } = true;
+    public bool Visible { get; set; }
 
     public void Render(IComObject<ID2D1DeviceContext> deviceContext, RenderResources resources, PerfCounters counters, in D2D_RECT_F bounds)
     {

@@ -2,16 +2,17 @@
 
 // a details listing that only ever touches the rows currently on screen.
 // cost per frame is bounded by the height of the window, not by the number of files in the folder.
-internal sealed class DetailsView
+internal sealed class DetailsView : IItemsView
 {
     private const float _padding = 8;
-    private const float _scrollbarWidth = 11;
-    private const float _minThumbHeight = 24;
+    private const float _scrollbarWidth = Scrollbar.Width;
+    private const float _iconSize = 16;
     private const float _rowsPerWheelNotch = 3;
     private const float _modifiedWidth = 132;
     private const float _typeWidth = 74;
     private const float _sizeWidth = 86;
 
+    private readonly Scrollbar _scrollbar = new();
     private float _scrollY;
     private int _hoverPosition = -1;
 
@@ -23,6 +24,11 @@ internal sealed class DetailsView
     public Action<SortColumn>? SortRequested { get; set; }
 
     public int VisibleRowCount => (int)MathF.Ceiling(ListHeight / RowHeight) + 1;
+    public float ScrollOffset { get => _scrollY; set => SetScroll(value); }
+    public int HoverPosition => _hoverPosition;
+    public bool ScrollbarDragging => _scrollbar.Dragging;
+    public int Columns => 1;
+    public int PageSize => Math.Max(1, VisibleRowCount - 2);
     private float ListTop => Bounds.top + HeaderHeight;
     private float ListHeight => MathF.Max(0, Bounds.bottom - ListTop);
     private float HeaderHeight { get; set; } = 26;
@@ -52,6 +58,8 @@ internal sealed class DetailsView
         _hoverPosition = position;
         return true;
     }
+
+    public int PositionAtPoint(float x, float y) => PositionAt(x, y);
 
     public int PositionAt(float x, float y)
     {
@@ -98,6 +106,18 @@ internal sealed class DetailsView
             SetScroll(bottom - ListHeight);
         }
     }
+
+    public bool BeginScrollbarDrag(float x, float y)
+    {
+        if (!_scrollbar.BeginDrag(x, y))
+            return false;
+
+        SetScroll(_scrollbar.ScrollFor(y));
+        return true;
+    }
+
+    public void DragScrollbar(float y) => SetScroll(_scrollbar.ScrollFor(y));
+    public void EndScrollbarDrag() => _scrollbar.EndDrag();
 
     public bool OnClick(float x, float y, bool doubleClick)
     {
@@ -148,7 +168,7 @@ internal sealed class DetailsView
         SortRequested?.Invoke(column);
     }
 
-    public void Render(IComObject<ID2D1DeviceContext> deviceContext, RenderResources resources)
+    public void Render(IComObject<ID2D1DeviceContext> deviceContext, RenderResources resources, ImageCache images, string folderPath)
     {
         RowHeight = resources.RowHeight;
         HeaderHeight = resources.HeaderHeight;
@@ -162,8 +182,9 @@ internal sealed class DetailsView
         var padding = _padding * scale;
 
         RenderHeader(deviceContext, resources, modifiedLeft, typeLeft, sizeLeft, right, padding);
-        RenderRows(deviceContext, resources, modifiedLeft, typeLeft, sizeLeft, right, padding);
-        RenderScrollbar(deviceContext, resources, scale);
+        RenderRows(deviceContext, resources, images, folderPath, modifiedLeft, typeLeft, sizeLeft, right, padding);
+        _scrollbar.Update(Bounds, ListTop, _scrollY, MaxScroll, scale);
+        _scrollbar.Draw(deviceContext, resources);
     }
 
     private void RenderHeader(
@@ -182,10 +203,10 @@ internal sealed class DetailsView
             new D2D_POINT_2F { x = Bounds.right, y = ListTop - 0.5f },
             resources.LineBrush);
 
-        DrawHeaderCell(deviceContext, resources, "Name", SortColumn.Name, Bounds.left + padding, modifiedLeft, false);
-        DrawHeaderCell(deviceContext, resources, "Modified", SortColumn.Modified, modifiedLeft, typeLeft, false);
-        DrawHeaderCell(deviceContext, resources, "Type", SortColumn.Type, typeLeft, sizeLeft, false);
-        DrawHeaderCell(deviceContext, resources, "Size", SortColumn.Size, sizeLeft, right - padding, true);
+        DrawHeaderCell(deviceContext, resources, Res.ColumnName, SortColumn.Name, Bounds.left + padding, modifiedLeft, false);
+        DrawHeaderCell(deviceContext, resources, Res.ColumnModified, SortColumn.Modified, modifiedLeft, typeLeft, false);
+        DrawHeaderCell(deviceContext, resources, Res.ColumnType, SortColumn.Type, typeLeft, sizeLeft, false);
+        DrawHeaderCell(deviceContext, resources, Res.ColumnSize, SortColumn.Size, sizeLeft, right - padding, true);
     }
 
     private void DrawHeaderCell(
@@ -225,6 +246,8 @@ internal sealed class DetailsView
     private void RenderRows(
         IComObject<ID2D1DeviceContext> deviceContext,
         RenderResources resources,
+        ImageCache images,
+        string folderPath,
         float modifiedLeft,
         float typeLeft,
         float sizeLeft,
@@ -262,25 +285,37 @@ internal sealed class DetailsView
             }
 
             var isDirectory = entry.IsDirectory;
-            var nameBrush = position == SelectedPosition ? resources.TextBrush : isDirectory ? resources.FolderTextBrush : resources.TextBrush;
+            var nameBrush = resources.NameBrush(entry, position == SelectedPosition);
             var detailBrush = position == SelectedPosition ? resources.TextBrush : resources.DimTextBrush;
 
-            var nameRect = new D2D_RECT_F { left = Bounds.left + padding, top = y, right = modifiedLeft - padding, bottom = rowRect.bottom };
-            TextDrawing.Draw(deviceContext, items.NameOf(entry), resources.RowFormat, nameRect, nameBrush);
+            var name = items.NameOf(entry);
+            var extension = items.ExtensionOf(entry);
+            var iconSize = _iconSize * resources.DpiScale;
+            var icon = images.GetOrRequest(name, extension, isDirectory, folderPath, (int)iconSize, false);
+            if (icon != null)
+            {
+                ImageDrawing.Draw(deviceContext, icon, Bounds.left + padding + iconSize / 2, y + RowHeight / 2, iconSize, false, RenderResources.OpacityOf(entry));
+            }
+
+            var nameLeft = Bounds.left + padding + iconSize + padding;
+            var nameRect = new D2D_RECT_F { left = nameLeft, top = y, right = modifiedLeft - padding, bottom = rowRect.bottom };
+            TextDrawing.Draw(deviceContext, name, resources.RowFormat, nameRect, nameBrush);
 
             var text = new ScratchText(buffer);
             text.AppendDateTime(new DateTime(entry.LastWriteTicks, DateTimeKind.Utc).ToLocalTime());
             var modifiedRect = new D2D_RECT_F { left = modifiedLeft, top = y, right = typeLeft - padding, bottom = rowRect.bottom };
             TextDrawing.Draw(deviceContext, text.Text, resources.RowFormat, modifiedRect, detailBrush);
 
+            // the shell hands the type name back with the icon, so this is the real one rather than the extension.
             var typeRect = new D2D_RECT_F { left = typeLeft, top = y, right = sizeLeft - padding, bottom = rowRect.bottom };
-            if (isDirectory)
+            var typeName = images.GetTypeNameFor(extension, isDirectory, (int)iconSize);
+            if (typeName != null)
             {
-                TextDrawing.Draw(deviceContext, "Folder", resources.RowFormat, typeRect, detailBrush);
+                TextDrawing.Draw(deviceContext, typeName, resources.RowFormat, typeRect, detailBrush);
             }
             else
             {
-                TextDrawing.Draw(deviceContext, items.ExtensionOf(entry), resources.RowFormat, typeRect, detailBrush);
+                TextDrawing.Draw(deviceContext, isDirectory ? Res.Folder : extension, resources.RowFormat, typeRect, detailBrush);
             }
 
             if (!isDirectory)
@@ -295,30 +330,5 @@ internal sealed class DetailsView
         }
 
         deviceContext.PopAxisAlignedClip();
-    }
-
-    private void RenderScrollbar(IComObject<ID2D1DeviceContext> deviceContext, RenderResources resources, float scale)
-    {
-        var maxScroll = MaxScroll;
-        if (maxScroll <= 0)
-            return;
-
-        var width = _scrollbarWidth * scale;
-        var trackHeight = ListHeight;
-        var total = trackHeight + maxScroll;
-        var thumbHeight = MathF.Max(_minThumbHeight * scale, trackHeight * trackHeight / total);
-        var thumbTop = ListTop + (trackHeight - thumbHeight) * (_scrollY / maxScroll);
-
-        var thumb = new D2D_RECT_F
-        {
-            left = Bounds.right - width + 2 * scale,
-            top = thumbTop,
-            right = Bounds.right - 2 * scale,
-            bottom = thumbTop + thumbHeight,
-        };
-
-        var radius = (thumb.right - thumb.left) / 2;
-        var rounded = new D2D1_ROUNDED_RECT { rect = thumb, radiusX = radius, radiusY = radius };
-        deviceContext.Object.FillRoundedRectangle(rounded, resources.ScrollbarBrush.Object);
     }
 }

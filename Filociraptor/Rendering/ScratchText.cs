@@ -1,8 +1,7 @@
 ﻿namespace Filociraptor.Rendering;
 
 // formats into a caller supplied stack buffer.
-// sizes and dates are formatted for every visible row on every frame, so going through string would allocate
-// thousands of times a second for text that is thrown away immediately.
+// sizes and dates are formatted for every visible row on every frame, so going through string would allocate thousands of times a second for text that is thrown away immediately.
 internal ref struct ScratchText(Span<char> buffer)
 {
     private readonly Span<char> _buffer = buffer;
@@ -63,7 +62,7 @@ internal ref struct ScratchText(Span<char> buffer)
         if (bytes < kilo)
         {
             Append(bytes);
-            Append(" B");
+            Append(Res.UnitByte);
             return;
         }
 
@@ -72,22 +71,22 @@ internal ref struct ScratchText(Span<char> buffer)
         if (bytes < mega)
         {
             value = (double)bytes / kilo;
-            unit = " KB";
+            unit = Res.UnitKiloByte;
         }
         else if (bytes < giga)
         {
             value = (double)bytes / mega;
-            unit = " MB";
+            unit = Res.UnitMegaByte;
         }
         else if (bytes < tera)
         {
             value = (double)bytes / giga;
-            unit = " GB";
+            unit = Res.UnitGigaByte;
         }
         else
         {
             value = (double)bytes / tera;
-            unit = " TB";
+            unit = Res.UnitTeraByte;
         }
 
         Append(value, value >= 100 ? "F0" : "F1");

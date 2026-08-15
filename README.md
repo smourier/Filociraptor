@@ -1,98 +1,101 @@
 ﻿# Filociraptor
 
-A fast Windows file manager in C#, Direct2D and NativeAOT.
+A fast Windows file manager in C#, DirectX, Direct2D and NativeAOT.
 
 The point of this project is speed. It exists to show that a managed, ahead of time compiled application can list,
-sort and draw very large folders as fast as a native one, provided it refuses the things that normally make Windows
-file listings slow.
+sort and draw very large folders as fast as a native one.
+
+**It is a demonstration, not a replacement for Explorer.** Explorer is a shell namespace browser with decades of
+behaviour behind it, and this is a file browser that reads the file system directly. What is here, though, is not a
+mock up. It browses, sorts, previews and opens real files, at speeds Explorer does not reach, and it is pleasant
+enough to use for real work.
 
 ## Numbers
 
-Measured with the built in benchmark, Release NativeAOT x64, warm file system cache, three runs.
+Measured with the built in benchmark, Release NativeAOT x64, warm file system cache.
 
-| Folder | Items | Enumerate | Sort by name | Frame | Working set | Allocated during scan |
-| --- | --- | --- | --- | --- | --- | --- |
-| `C:\Windows\System32` | 5 064 | 1.8 ms | 0.3 ms | 0.74 ms | 10 MB | 0 bytes |
-| `C:\Windows\WinSxS` | 25 444 | 20.5 ms | 4.5 ms | 0.80 ms | 17 MB | 0 bytes |
+| Folder | Items | Enumerate | Sort by name | Frame | Working set |
+| --- | --- | --- | --- | --- | --- |
+| `C:\Windows\System32` | 5064 | 1.9 ms | 1.1 ms | 0.74 ms | 10 MB |
+| `C:\Windows\WinSxS` | 25444 | 20.0 ms | 15.3 ms | 0.80 ms | 17 MB |
 
-A frame costs the same in both, because only the rows on screen are ever drawn. Zero garbage collections happen
-during a scan, in any generation. The published executable is 7.2 MB and needs no runtime installed.
-
-Reproduce with:
+A frame costs the same in both, because only the rows on screen are ever drawn. A scan allocates nothing and causes
+no garbage collection at all. The published executable is 7.2 MB (3.1MB with UPX) and needs nothing to be installed.
 
 ```bash
 filo bench "C:\Windows\WinSxS" 3
 ```
 
-There is also a self test, which builds the device, scans, and draws real frames without a human having to look at a
-window. It returns a non zero exit code on failure.
-
-```bash
-filo selftest "C:\Windows\System32"
-```
-
 ## How it gets there
 
-**Nothing is allocated per file.** A folder is two flat unmanaged buffers, one holding every name end to end and one
-holding a 32 byte record per entry, plus a single integer array for the sort order. A million files cost a handful of
-allocations rather than a million objects, so there is no garbage to collect and no pause to hide.
+* nothing is allocated per file, a folder is a couple of flat buffers rather than a million objects.
+* the shell is never on the hot path, it is asked only for the icons and thumbnails actually on screen.
+* one icon per extension rather than one per file, so a folder of 2 000 files costs a single call.
+* the listing is virtualised and drawn on the GPU, so the folder size does not change what a frame costs.
+* names are ordered exactly as Explorer orders them, punctuation before letters and runs of digits compared as
+numbers, which costs more than a plain sort and is worth it.
 
-**The shell is never on the hot path.** Enumeration and metadata come from plain file APIs. The shell is reserved for
-icons and thumbnails, which are only ever requested for the rows currently on screen. A shell call in the enumeration
-path is what makes a listing stall for seconds on a network or placeholder folder.
+## What it does
 
-**Sorting stays on the integer path.** The first characters of each name are folded into a 64 bit key, so the bulk of
-the work is a plain integer sort. Runs that share a key are refined on the characters that follow, skipping whatever
-prefix they already have in common, and a real comparison is only reached once a run is down to a handful of entries.
+* browses drives and folders, with back, forward and up, and the drive pane always current.
+* **notices drives arriving and leaving**, including mapped network drives, and moves off a drive that is pulled
+out rather than showing a listing of something that is gone.
+* follows the folder on screen, so a file created or deleted by anything else appears or disappears on its own.
+* details, small, medium and large icons, and thumbnails, with real shell icons and thumbnails.
+* shows or hides hidden and protected operating system files, faded rather than merely listed.
+* a large view of any image WIC can decode, on hover.
+* the real Explorer context menu, with a site, so installed handlers appear in it.
+* opens files with their default command, and reveals anything in Explorer.
+* zoom, sortable columns, keyboard navigation, and its own title bar.
 
-**The listing is virtualised and drawn on the GPU.** Direct2D on a flip model swapchain, text drawn straight from the
-character arena and from stack buffers, so the cost of a frame follows the height of the window rather than the size
-of the folder.
+## What it does not do
 
-## Status
+* **no file operations at all.** No copy, move, rename, delete or new folder, and no drag and drop. The context
+menu can do some of it because that menu is Explorer's, not ours.
+* no multiple selection, one item at a time.
+* no address bar, no typing or pasting a path, and no search.
+* no shell namespace, so no This PC, no Recycle Bin, no zip folders, no libraries and no cloud placeholders. It
+browses the file system, nothing more.
+* no tabs, no favourites, no settings, and nothing is remembered between runs.
+* no accessibility. Everything is custom drawn, so a screen reader sees an empty window.
 
-This is an early vertical slice. What works today:
+## Where it could go
 
-* asynchronous batched enumeration, so the first rows appear a few milliseconds in whatever the folder size.
-* a details view with virtualised scrolling, keyboard navigation and sortable columns.
-* navigation into folders and back up, with an in flight scan cancelled instantly on navigation.
-* a live performance overlay, and a headless benchmark mode.
+None of the above is blocked by anything structural. The gap between this and something you would use every day is
+ordinary work, not research, because the hard parts are already solved by three libraries that between them cover
+everything Windows can do here:
 
-Not there yet: the drive pane and splitter, icons and thumbnails, the icon and thumbnail view modes.
+* [DirectN](https://github.com/smourier/DirectNAot) gives the whole of DirectX, Direct2D, DirectWrite and Win32,
+ahead of time compiled and without a wrapper in the way.
+* [ShellN](https://github.com/smourier/ShellBat) gives the shell itself, so the namespace, the property system,
+context menus, drag and drop and file operations are all reachable.
+* [WicNet](https://github.com/smourier/WicNet) gives every image format Windows can decode.
 
-## Keys
+Multiple selection and file operations are the first two steps, and both are shell work that ShellN already
+exposes. After that an address bar, then the namespace, and at that point the word demonstration stops applying.
 
-| Key | Action |
+## Using it
+
+A pane of drives on the left, the listing on the right, and a splitter between them. The title bar carries the
+navigation buttons, the view slider and the current zoom, and shortens the path when there is no room for it.
+
+| Action | How |
 | --- | --- |
-| `Enter`, double click | open the selected folder |
-| `Backspace` | go up |
-| `F5` | rescan |
-| `F11` | render continuously, for frame time measurement |
-| `F12` | toggle the performance overlay |
-
-## Building
-
-```bash
-dotnet build Filociraptor.slnx -c Release -p:Platform=x64
-```
-
-For the ahead of time compiled build:
-
-```bash
-dotnet publish Filociraptor/Filociraptor.csproj -c Release -p:Platform=x64 -r win-x64
-```
-
-The native link step needs the Visual Studio toolchain, so run it from a developer prompt, or make sure `vswhere.exe`
-is reachable from the path.
+| open the selected item, a folder in place or a file in its application | `Enter`, or double click |
+| back, forward, up | the first three buttons in the title bar, or `Backspace` to go up |
+| show the folder in Explorer | the fourth button |
+| show hidden and protected system files | the fifth button, they appear faded |
+| a large view of an image, decoded by WIC | hover it, `Esc` or move away to dismiss |
+| the Explorer context menu for an item | right click |
+| details, small, medium and large icons, thumbnails | the slider, or `Ctrl` with `1` to `5` |
+| zoom text, icons and thumbnails together | `Ctrl` with the wheel |
+| rescan now | `F5` |
+| show the performance overlay | `F12` |
 
 ## Dependencies
 
-Everything comes from NuGet. No native code of its own, no wrapper layer.
+Everything comes from NuGet.
 
-* [DirectNAot](https://www.nuget.org/packages/DirectNAot) and DirectNAot.Extensions, for Direct2D, DirectWrite,
-Direct3D, DXGI and the Win32 window.
-* ShellN and ShellN.Extensions will join for icons and thumbnails, which need the shell.
-
-## License
-
-MIT.
+* [DirectNAot](https://www.nuget.org/packages/DirectNAot), for Direct2D, DirectWrite, Direct3D and the window itself.
+* [ShellN](https://www.nuget.org/packages/ShellN), for the icons, thumbnails and context menus.
+* [WicNetCore](https://www.nuget.org/packages/WicNetCore), to know which files WIC can decode.

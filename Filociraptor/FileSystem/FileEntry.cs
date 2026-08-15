@@ -14,4 +14,8 @@ internal struct FileEntry
     public long LastWriteTicks;
 
     public readonly bool IsDirectory => (Attributes & FileAttributes.Directory) != 0;
+    public readonly bool IsHidden => (Attributes & FileAttributes.Hidden) != 0;
+
+    // what Windows calls a protected operating system file, hidden and system together.
+    public readonly bool IsSuperHidden => (Attributes & (FileAttributes.Hidden | FileAttributes.System)) == (FileAttributes.Hidden | FileAttributes.System);
 }
