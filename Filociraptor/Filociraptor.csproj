@@ -1,0 +1,43 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<OutputType>WinExe</OutputType>
+		<TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+		<AssemblyName>filo</AssemblyName>
+		<RootNamespace>Filociraptor</RootNamespace>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>true</ImplicitUsings>
+		<PublishAot>true</PublishAot>
+		<InvariantGlobalization>true</InvariantGlobalization>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+		<IsAotCompatible>true</IsAotCompatible>
+		<ApplicationManifest>app.manifest</ApplicationManifest>
+		<WindowsSdkPackageVersion>10.0.26100.57</WindowsSdkPackageVersion>
+		<Platforms>x64;ARM64;x86</Platforms>
+		<Version>0.1.0</Version>
+		<Description>A fast Windows file manager in C#, Direct2D and NativeAOT.</Description>
+		<Copyright>Copyright © 2026 Simon Mourier. All rights reserved.</Copyright>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="DirectNAot" Version="1.6.5" />
+		<PackageReference Include="DirectNAot.Extensions" Version="1.6.5" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Using Include="DirectN" />
+		<Using Include="DirectN.Extensions" />
+		<Using Include="DirectN.Extensions.Com" />
+		<Using Include="DirectN.Extensions.Utilities" />
+		<Using Include="Filociraptor.Diagnostics" />
+		<Using Include="Filociraptor.FileSystem" />
+		<Using Include="Filociraptor.Rendering" />
+		<Using Include="System.Diagnostics" />
+		<Using Include="System.Diagnostics.CodeAnalysis" />
+		<Using Include="System.IO.Enumeration" />
+		<Using Include="System.Runtime.CompilerServices" />
+		<Using Include="System.Runtime.InteropServices" />
+		<Using Include="System.Threading.Channels" />
+	</ItemGroup>
+
+</Project>
