@@ -7,6 +7,8 @@
 #
 # The release is tagged from the Version in the csproj, so bumping that is what decides the next release number.
 # A version that has already been released stops the run rather than replacing anything.
+# It carries one executable per architecture, packed where UPX can pack it. The unpacked builds stay behind as
+# artifacts on the run, which is where they are useful, next to a stack trace rather than in front of a user.
 #
 # The three architectures build on three runners at once, because the slow part is the native compile and link and
 # no cache helps with that. Concurrent jobs are free on a public repository, so the wall clock is one architecture
@@ -148,22 +150,30 @@ jobs:
           if [ -z "$version" ]; then echo "no <Version> found in the csproj"; exit 1; fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
-          echo "releasing $version"
+
+          # the commit that was actually checked out, which is not the one that started the run when a ref was given.
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "releasing $version from $(git rev-parse --short HEAD)"
 
       - name: collect the binaries
         uses: actions/download-artifact@v8
         with:
           path: dist
 
+      # one executable per architecture, the packed one wherever UPX could produce it, and no suffix to say so.
+      # whether it is packed is not something anyone downloading it has to care about, and shipping both would
+      # only ask them a question they cannot answer.
       # every artifact holds a file called filo.exe, so they are named apart before they can sit together.
       - name: name them
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           mkdir -p assets
-          for folder in dist/*/; do
-            name=$(basename "$folder")
-            mv "$folder/filo.exe" "assets/filo-$VERSION-${name#filo-}.exe"
+          for rid in win-x86 win-x64 win-arm64; do
+            source="dist/filo-$rid-upx/filo.exe"
+            if [ ! -f "$source" ]; then source="dist/filo-$rid/filo.exe"; fi
+            if [ ! -f "$source" ]; then echo "nothing was built for $rid"; exit 1; fi
+            cp "$source" "assets/filo-$VERSION-$rid.exe"
           done
           ls -la assets
 
@@ -171,6 +181,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.version.outputs.tag }}
+          SHA: ${{ steps.version.outputs.sha }}
           REPO: ${{ github.repository }}
         run: |
           # refusing rather than replacing, so a forgotten version bump cannot overwrite what is already published.
@@ -179,10 +190,20 @@ jobs:
             exit 1
           fi
 
+          # deleting a release leaves its tag behind, and a tag that already exists is reused as it is, whatever
+          # --target says. releasing then would attach binaries built here to a commit somewhere else entirely.
+          existing=$(git ls-remote origin "refs/tags/$TAG^{}" | cut -f1)
+          if [ -z "$existing" ]; then existing=$(git ls-remote origin "refs/tags/$TAG" | cut -f1); fi
+          if [ -n "$existing" ] && [ "$existing" != "$SHA" ]; then
+            echo "$TAG already exists and points at $existing, not at the commit built here, $SHA."
+            echo "Delete the tag as well as the release, gh release delete $TAG --cleanup-tag, then run this again."
+            exit 1
+          fi
+
           # --generate-notes writes what changed since the last tag, on the server, so nothing has to be cloned.
           gh release create "$TAG" assets/*.exe \
             --repo "$REPO" \
-            --target "$GITHUB_SHA" \
+            --target "$SHA" \
             --title "$TAG" \
             --generate-notes
 
