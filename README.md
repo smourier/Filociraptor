@@ -41,7 +41,7 @@ filo bench "C:\Windows\WinSxS" 3
 * a large view of any image WIC can decode, on hover.
 * the real Explorer context menu, with installed handlers appearing in it (ie: where "Share" works).
 * opens files with their default command, and reveals anything in Explorer.
-* zoom, sortable columns, keyboard navigation, and its own title bar.
+* global zoom, sortable columns, keyboard navigation, and its own title bar.
 
 ## What it does not do
 
@@ -87,3 +87,34 @@ Everything comes from NuGet.
 * [DirectNAot](https://www.nuget.org/packages/DirectNAot), for Direct2D, DirectWrite, Direct3D and the window itself.
 * [ShellN](https://www.nuget.org/packages/ShellN), for the icons, thumbnails and context menus.
 * [WicNetCore](https://www.nuget.org/packages/WicNetCore), to know which files WIC can decode.
+
+## Screenshots
+
+### Icon view
+
+<img width="1260" height="764" alt="Icon view" src="https://github.com/user-attachments/assets/a83f21ed-4d9d-4cfb-8a57-e4756c82573b" />
+
+### Zoomed out icon view
+
+<img width="1821" height="1225" alt="Zoomed out view" src="https://github.com/user-attachments/assets/4480ed20-85e0-40d2-a8f0-fd584c58fd53" />
+
+### Thumbnail view (on fonts)
+
+<img width="1921" height="1074" alt="Fonts thumbnails" src="https://github.com/user-attachments/assets/2ef7ead2-6213-43e1-b21f-9315e2baf3fc" />
+
+### Zoomed out Thumbnail view
+
+<img width="1820" height="1226" alt="Thumbnail view" src="https://github.com/user-attachments/assets/b8127177-62f6-473c-a0ff-dcc2db5ba93d" />
+
+### Hover view
+
+<img width="1821" height="1222" alt="Hover view" src="https://github.com/user-attachments/assets/e97e1983-fb4b-4858-99f2-a4a003d49643" />
+
+### Diags / Performance overlay
+
+<img width="1818" height="1226" alt="Overlay" src="https://github.com/user-attachments/assets/7c773b50-c4ff-4be5-a47a-12d269b9a749" />
+
+### Full Explorer context menu
+
+<img width="846" height="976" alt="Context menu" src="https://github.com/user-attachments/assets/2ecbb4c6-c756-4864-84f3-4334c626998b" />
+
