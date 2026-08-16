@@ -1,0 +1,179 @@
+﻿# Builds the ahead of time compiled binaries for the three architectures, and the packed copies of the two that UPX
+# can handle. Nothing here runs on its own. Start it from the Actions tab, or from a machine with the GitHub CLI:
+#
+#     gh workflow run build.yml                      builds and leaves the binaries as artifacts.
+#     gh workflow run build.yml -f release=true      builds and publishes a release as well.
+#     gh run watch                                   follows the run that just started.
+#
+# The release is tagged from the Version in the csproj, so bumping that is what decides the next release number.
+# A version that has already been released stops the run rather than replacing anything.
+#
+# The three architectures build on three runners at once, because the slow part is the native compile and link and
+# no cache helps with that. Concurrent jobs are free on a public repository, so the wall clock is one architecture
+# rather than the sum of three.
+name: build
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch, tag or commit to build. Leave empty for the default branch.'
+        required: false
+        default: ''
+      release:
+        description: 'Publish a GitHub release, tagged from the version in the csproj'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  # gh release create writes to the repository. The default token only reads.
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.rid }}
+    runs-on: windows-latest
+
+    strategy:
+      # every architecture reports its own result rather than the first failure cancelling the rest.
+      fail-fast: false
+      matrix:
+        include:
+          - rid: win-x86
+            platform: x86
+            upx: true
+          - rid: win-x64
+            platform: x64
+            upx: true
+          # UPX cannot pack a win64/arm64 image, it answers CantPackException, so this one ships unpacked.
+          - rid: win-arm64
+            platform: ARM64
+            upx: false
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      # the point of caching this is the ILCompiler runtime packs, hundreds of megabytes that are otherwise
+      # downloaded again on every cold run.
+      - name: cache NuGet
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: install upx
+        if: matrix.upx
+        run: choco install upx --no-progress -y
+
+      # PublishDir is given explicitly so the output is somewhere known, rather than under a path that depends on
+      # the platform, the framework and the runtime identifier.
+      - name: publish ${{ matrix.rid }}
+        shell: pwsh
+        run: |
+          dotnet publish Filociraptor/Filociraptor.csproj `
+            -c Release `
+            -r ${{ matrix.rid }} `
+            -p:Platform=${{ matrix.platform }} `
+            -p:PublishDir=$env:GITHUB_WORKSPACE\out\${{ matrix.rid }}\
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $exe = "$env:GITHUB_WORKSPACE\out\${{ matrix.rid }}\filo.exe"
+          if (-not (Test-Path $exe)) { throw "no executable was produced at $exe" }
+          "{0:N1} MB" -f ((Get-Item $exe).Length / 1MB)
+
+      # packed into its own folder, so the plain and the packed executable stay separate artifacts.
+      - name: pack with upx
+        if: matrix.upx
+        shell: pwsh
+        run: |
+          $source = "$env:GITHUB_WORKSPACE\out\${{ matrix.rid }}\filo.exe"
+          $target = "$env:GITHUB_WORKSPACE\out\${{ matrix.rid }}-upx"
+          New-Item -ItemType Directory -Force $target | Out-Null
+          upx --best --lzma $source -o "$target\filo.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "packed to {0:N1} MB" -f ((Get-Item "$target\filo.exe").Length / 1MB)
+
+      - name: upload ${{ matrix.rid }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: filo-${{ matrix.rid }}
+          path: out/${{ matrix.rid }}/filo.exe
+          if-no-files-found: error
+
+      - name: upload ${{ matrix.rid }} packed
+        if: matrix.upx
+        uses: actions/upload-artifact@v7
+        with:
+          name: filo-${{ matrix.rid }}-upx
+          path: out/${{ matrix.rid }}-upx/filo.exe
+          if-no-files-found: error
+
+  release:
+    name: publish the release
+    needs: build
+    if: inputs.release
+    # just gh and a handful of file moves, and a Linux runner starts faster.
+    runs-on: ubuntu-latest
+
+    steps:
+      # only for the csproj, which is where the version comes from.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: read the version
+        id: version
+        run: |
+          version=$(grep -oPm1 '(?<=<Version>)[^<]+' Filociraptor/Filociraptor.csproj)
+          if [ -z "$version" ]; then echo "no <Version> found in the csproj"; exit 1; fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "releasing $version"
+
+      - name: collect the binaries
+        uses: actions/download-artifact@v7
+        with:
+          path: dist
+
+      # every artifact holds a file called filo.exe, so they are named apart before they can sit together.
+      - name: name them
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir -p assets
+          for folder in dist/*/; do
+            name=$(basename "$folder")
+            mv "$folder/filo.exe" "assets/filo-$VERSION-${name#filo-}.exe"
+          done
+          ls -la assets
+
+      - name: create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          # refusing rather than replacing, so a forgotten version bump cannot overwrite what is already published.
+          if gh release view "$TAG" --repo "$REPO" > /dev/null 2>&1; then
+            echo "$TAG is already released. Bump <Version> in Filociraptor.csproj and run this again."
+            exit 1
+          fi
+
+          # --generate-notes writes what changed since the last tag, on the server, so nothing has to be cloned.
+          gh release create "$TAG" assets/*.exe \
+            --repo "$REPO" \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --generate-notes
+
+      - name: what shipped
+        run: |
+          for f in assets/*.exe; do printf '%-44s %6.1f MB\n' "$(basename "$f")" "$(echo "scale=1; $(stat -c%s "$f")/1048576" | bc)"; done
