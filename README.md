@@ -2,6 +2,8 @@
 
 A fast Windows file manager in C#, DirectX, Direct2D and NativeAOT for x86, x64 and ARM64.
 
+<img width="256" src="Filociraptor.png" />
+
 The point of this project is speed. It exists to show that a managed, ahead of time compiled application can list, sort and draw very large folders as fast as a native one.
 
 **It is a demonstration, not a replacement for Explorer.** Explorer is a shell namespace browser with decades of behaviour behind it, and this is a file browser that reads the file system directly. 
