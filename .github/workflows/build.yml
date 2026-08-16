@@ -63,7 +63,7 @@ jobs:
       # the point of caching this is the ILCompiler runtime packs, hundreds of megabytes that are otherwise
       # downloaded again on every cold run.
       - name: cache NuGet
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
@@ -90,6 +90,10 @@ jobs:
           "{0:N1} MB" -f ((Get-Item $exe).Length / 1MB)
 
       # packed into its own folder, so the plain and the packed executable stay separate artifacts.
+      #
+      # the x86 image is refused outright, "unexpected value in PE header", because UPX does not recognise
+      # something an ahead of time compiled 32 bit binary puts there. --force packs it anyway, and the result runs,
+      # so the pack is attempted honestly first and only forced when that is the alternative to no packing at all.
       - name: pack with upx
         if: matrix.upx
         shell: pwsh
@@ -97,8 +101,16 @@ jobs:
           $source = "$env:GITHUB_WORKSPACE\out\${{ matrix.rid }}\filo.exe"
           $target = "$env:GITHUB_WORKSPACE\out\${{ matrix.rid }}-upx"
           New-Item -ItemType Directory -Force $target | Out-Null
+
           upx --best --lzma $source -o "$target\filo.exe"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($LASTEXITCODE -ne 0)
+          {
+              Write-Host "upx refused it, trying again with --force"
+              upx --best --lzma --force $source -o "$target\filo.exe"
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+          if (-not (Test-Path "$target\filo.exe")) { throw "upx reported success but produced nothing" }
           "packed to {0:N1} MB" -f ((Get-Item "$target\filo.exe").Length / 1MB)
 
       - name: upload ${{ matrix.rid }}
@@ -139,7 +151,7 @@ jobs:
           echo "releasing $version"
 
       - name: collect the binaries
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           path: dist
 
