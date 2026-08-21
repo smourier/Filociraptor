@@ -1,11 +1,19 @@
-﻿namespace Filociraptor.Shell;
+﻿using ShellN.Extensions;
+
+namespace Filociraptor.Shell;
 
 // the site a shell context menu asks for while it is up.
-// handlers use it to find the owning window, and some of them refuse to appear without one, so this is what makes the menu the real Explorer menu rather than a subset.
 [GeneratedComClass]
-internal sealed partial class ContextMenuSite(HWND owner) : DirectN.IServiceProvider, IObjectWithSite, IOleWindow, IDisposable
+internal sealed partial class ContextMenuSite(HWND owner) :
+    DirectN.IServiceProvider,
+    IObjectWithSite,
+    IOleWindow,
+    ShellN.IHandlerActivationHost,
+    IDisposable
 {
     private nint _site;
+
+    public string? NavigateToParsingName { get; private set; }
 
     public HRESULT QueryService(in Guid guidService, in Guid riid, out nint ppvObject)
     {
@@ -50,4 +58,42 @@ internal sealed partial class ContextMenuSite(HWND owner) : DirectN.IServiceProv
             Marshal.Release(site);
         }
     }
+
+    public HRESULT BeforeCoCreateInstance(in Guid clsidHandler, ShellN.IShellItemArray itemsBeingActivated, ShellN.IHandlerInfo handlerInfo)
+    {
+        if (clsidHandler == ShellN.Constants.ExecuteFolder)
+        {
+            foreach (var item in itemsBeingActivated.Enumerate(true))
+            {
+                var parsing = item.SIGDN_DESKTOPABSOLUTEPARSING;
+                item.Dispose();
+                if (!string.IsNullOrEmpty(parsing))
+                {
+                    NavigateToParsingName = parsing;
+                    // navigate on first item only, because the shell will only open one window anyway.
+                    return Constants.ERROR_CANCELLED;
+                }
+            }
+
+            return Constants.S_OK;
+        }
+
+#if DEBUG
+        handlerInfo.GetApplicationDisplayName(out var name);
+        handlerInfo.GetApplicationPublisher(out var pub);
+        handlerInfo.GetApplicationIconReference(out var iconReference);
+        Application.TraceVerbose($"{clsidHandler:B} name:'{name}' publisher:'{pub}' icon:'{iconReference}'");
+        PWSTR.Dispose(ref name);
+        PWSTR.Dispose(ref pub);
+        PWSTR.Dispose(ref iconReference);
+#endif
+        return Constants.S_OK;
+    }
+
+    public HRESULT BeforeCreateProcess(PWSTR applicationPath, PWSTR commandLine, ShellN.IHandlerInfo handlerInfo)
+    {
+        //Application.TraceVerbose($"{applicationPath} {commandLine}");
+        return Constants.S_OK;
+    }
+
 }

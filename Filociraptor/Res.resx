@@ -129,9 +129,6 @@
   <data name="ColumnSize" xml:space="preserve">
     <value>Size</value>
   </data>
-  <data name="Drives" xml:space="preserve">
-    <value>Drives</value>
-  </data>
   <data name="Folder" xml:space="preserve">
     <value>Folder</value>
   </data>

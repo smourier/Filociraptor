@@ -17,18 +17,4 @@ internal sealed class DriveNotifier : ChangeNotifier
         SHCNE_ID.SHCNE_NETUNSHARE;
 
     public Task Start() => Run(null, true, _driveEvents);
-
-    // the same as the base, without the one line that turns off exiting when the last window goes.
-    // that setting is static and shared, and with it off this application keeps running after its window closes.
-    public override Task Run(
-        ItemIdList? idList,
-        bool recursive = true,
-        SHCNE_ID events = SHCNE_ID.SHCNE_ALLEVENTS,
-        SHCNRF_SOURCE flags = SHCNRF_SOURCE.SHCNRF_InterruptLevel | SHCNRF_SOURCE.SHCNRF_ShellLevel) =>
-        TaskUtilities.RunWithSTAThread(() =>
-        {
-            using var app = new Application();
-            NotifyWindow = CreateNotifyWindow(idList, recursive, events, flags);
-            app.Run();
-        }, true);
 }

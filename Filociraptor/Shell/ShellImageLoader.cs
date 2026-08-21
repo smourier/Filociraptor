@@ -9,6 +9,9 @@ namespace Filociraptor.Shell;
 internal sealed class ShellImageLoader : IDisposable
 {
     private const int _minWorkers = 2;
+    // how many times a request is retried when the shell answers with nothing.
+    private const int _maxAttempts = 3;
+
     private const int _maxWorkers = 4;
     private const int _bytesPerPixel = 4;
     private const string _syntheticName = "filociraptor";
@@ -68,7 +71,7 @@ internal sealed class ShellImageLoader : IDisposable
                 if (!_pending.TryPop(out var request))
                     continue;
 
-                if (request.Generation != Generation)
+                if (request.Generation != ShellImageRequest.NeverStale && request.Generation != Generation)
                     continue;
 
                 try
@@ -89,16 +92,30 @@ internal sealed class ShellImageLoader : IDisposable
                         // nothing cached, so ask for the real thing.
                         Push(request with { CachedOnly = false });
                     }
+                    else if (request.Attempt + 1 < _maxAttempts)
+                    {
+                        // the shell answered with nothing, which it does now and then for an item it can perfectly
+                        // well describe a moment later. asking again is what stops a row keeping an empty icon
+                        // until the folder is read again.
+                        Push(request with { Attempt = request.Attempt + 1 });
+                    }
+                    else
+                    {
+                        // out of tries, and the cache has to hear about it or it will hold the request as pending
+                        // and never ask for this one again.
+                        _results.Enqueue(ShellImage.Nothing(request));
+                        _imageReady();
+                    }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // any file can have a broken or hostile handler behind it. losing one image is fine, losing the worker is not.
+                    Application.TraceVerbose($"no {request.Kind} for '{request.Target}': {ex.Message}");
                 }
             }
         }
         catch (OperationCanceledException)
         {
-            // shutting down.
+            // continue
         }
     }
 
@@ -175,8 +192,8 @@ internal sealed class ShellImageLoader : IDisposable
         const SHGFI_FLAGS flags = SHGFI_FLAGS.SHGFI_TYPENAME | SHGFI_FLAGS.SHGFI_USEFILEATTRIBUTES;
 
         var native = attributes.HasFlag(FileAttributes.Directory)
-            ? ShellN.FILE_FLAGS_AND_ATTRIBUTES.FILE_ATTRIBUTE_DIRECTORY
-            : ShellN.FILE_FLAGS_AND_ATTRIBUTES.FILE_ATTRIBUTE_NORMAL;
+            ? FILE_FLAGS_AND_ATTRIBUTES.FILE_ATTRIBUTE_DIRECTORY
+            : FILE_FLAGS_AND_ATTRIBUTES.FILE_ATTRIBUTE_NORMAL;
 
         var info = new SHFILEINFOW();
         if (ShellN.Functions.SHGetFileInfoW(PWSTR.From(name), native, (nint)(&info), (uint)sizeof(SHFILEINFOW), flags) == 0)

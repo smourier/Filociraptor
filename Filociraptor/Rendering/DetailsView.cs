@@ -12,9 +12,16 @@ internal sealed class DetailsView : IItemsView
     private const float _typeWidth = 74;
     private const float _sizeWidth = 86;
 
+    // the row height the column widths above were chosen against, so they scale with it.
+    private const float _baseRowHeight = 22;
+
     private readonly Scrollbar _scrollbar = new();
     private float _scrollY;
     private int _hoverPosition = -1;
+
+    // one per column, so a header lights up under the pointer the way the buttons in the caption do.
+    private readonly HoverAnimation[] _headerHovers = new HoverAnimation[4];
+    private int _hoverColumn = -1;
 
     public FolderItems? Items { get; set; }
     public int SelectedPosition { get; private set; } = -1;
@@ -51,11 +58,14 @@ internal sealed class DetailsView : IItemsView
 
     public bool SetHover(float x, float y)
     {
+        var inHeader = y >= Bounds.top && y < ListTop && x >= Bounds.left && x < Bounds.right - _scrollbarWidth;
+        var column = inHeader ? (int)ColumnAt(x) : -1;
         var position = PositionAt(x, y);
-        if (position == _hoverPosition)
+        if (position == _hoverPosition && column == _hoverColumn)
             return false;
 
         _hoverPosition = position;
+        _hoverColumn = column;
         return true;
     }
 
@@ -141,31 +151,29 @@ internal sealed class DetailsView : IItemsView
 
     private void OnHeaderClick(float x)
     {
+        var column = ColumnAt(x);
+
+        SortRequested?.Invoke(column);
+    }
+
+    private SortColumn ColumnAt(float x)
+    {
         var right = Bounds.right - _scrollbarWidth;
-        var scale = RowHeight / 22;
+        var scale = RowHeight / _baseRowHeight;
         var sizeLeft = right - _sizeWidth * scale;
         var typeLeft = sizeLeft - _typeWidth * scale;
         var modifiedLeft = typeLeft - _modifiedWidth * scale;
 
-        SortColumn column;
         if (x >= sizeLeft)
-        {
-            column = SortColumn.Size;
-        }
-        else if (x >= typeLeft)
-        {
-            column = SortColumn.Type;
-        }
-        else if (x >= modifiedLeft)
-        {
-            column = SortColumn.Modified;
-        }
-        else
-        {
-            column = SortColumn.Name;
-        }
+            return SortColumn.Size;
 
-        SortRequested?.Invoke(column);
+        if (x >= typeLeft)
+            return SortColumn.Type;
+
+        if (x >= modifiedLeft)
+            return SortColumn.Modified;
+
+        return SortColumn.Name;
     }
 
     public void Render(IComObject<ID2D1DeviceContext> deviceContext, RenderResources resources, ImageCache images, string folderPath)
@@ -203,10 +211,28 @@ internal sealed class DetailsView : IItemsView
             new D2D_POINT_2F { x = Bounds.right, y = ListTop - 0.5f },
             resources.LineBrush);
 
+        // the highlight covers the whole cell, so it is drawn on the cell bounds rather than on the padded text.
+        DrawHeaderHover(deviceContext, resources, SortColumn.Name, Bounds.left, modifiedLeft);
+        DrawHeaderHover(deviceContext, resources, SortColumn.Modified, modifiedLeft, typeLeft);
+        DrawHeaderHover(deviceContext, resources, SortColumn.Type, typeLeft, sizeLeft);
+        DrawHeaderHover(deviceContext, resources, SortColumn.Size, sizeLeft, right);
+
         DrawHeaderCell(deviceContext, resources, Res.ColumnName, SortColumn.Name, Bounds.left + padding, modifiedLeft, false);
         DrawHeaderCell(deviceContext, resources, Res.ColumnModified, SortColumn.Modified, modifiedLeft, typeLeft, false);
         DrawHeaderCell(deviceContext, resources, Res.ColumnType, SortColumn.Type, typeLeft, sizeLeft, false);
         DrawHeaderCell(deviceContext, resources, Res.ColumnSize, SortColumn.Size, sizeLeft, right - padding, true);
+    }
+
+    private void DrawHeaderHover(IComObject<ID2D1DeviceContext> deviceContext, RenderResources resources, SortColumn column, float left, float right)
+    {
+        ref var hover = ref _headerHovers[(int)column];
+        if (hover.Advance(_hoverColumn == (int)column, resources.ElapsedSeconds))
+        {
+            resources.Animating = true;
+        }
+
+        var rect = new D2D_RECT_F { left = left, top = Bounds.top, right = right, bottom = ListTop };
+        resources.FillHover(deviceContext, rect, hover.Opacity);
     }
 
     private void DrawHeaderCell(
@@ -291,7 +317,7 @@ internal sealed class DetailsView : IItemsView
             var name = items.NameOf(entry);
             var extension = items.ExtensionOf(entry);
             var iconSize = _iconSize * resources.DpiScale;
-            var icon = images.GetOrRequest(name, extension, isDirectory, folderPath, (int)iconSize, false);
+            var icon = images.GetOrRequest(name, extension, isDirectory, folderPath, (int)iconSize, false, items.ParsingNameOf(entry));
             if (icon != null)
             {
                 ImageDrawing.Draw(deviceContext, icon, Bounds.left + padding + iconSize / 2, y + RowHeight / 2, iconSize, false, RenderResources.OpacityOf(entry));
@@ -302,9 +328,12 @@ internal sealed class DetailsView : IItemsView
             TextDrawing.Draw(deviceContext, name, resources.RowFormat, nameRect, nameBrush);
 
             var text = new ScratchText(buffer);
-            text.AppendDateTime(new DateTime(entry.LastWriteTicks, DateTimeKind.Utc).ToLocalTime());
-            var modifiedRect = new D2D_RECT_F { left = modifiedLeft, top = y, right = typeLeft - padding, bottom = rowRect.bottom };
-            TextDrawing.Draw(deviceContext, text.Text, resources.RowFormat, modifiedRect, detailBrush);
+            if (entry.LastWriteTicks > 0)
+            {
+                text.AppendDateTime(new DateTime(entry.LastWriteTicks, DateTimeKind.Utc).ToLocalTime());
+                var modifiedRect = new D2D_RECT_F { left = modifiedLeft, top = y, right = typeLeft - padding, bottom = rowRect.bottom };
+                TextDrawing.Draw(deviceContext, text.Text, resources.RowFormat, modifiedRect, detailBrush);
+            }
 
             // the shell hands the type name back with the icon, so this is the real one rather than the extension.
             var typeRect = new D2D_RECT_F { left = typeLeft, top = y, right = sizeLeft - padding, bottom = rowRect.bottom };
@@ -318,7 +347,7 @@ internal sealed class DetailsView : IItemsView
                 TextDrawing.Draw(deviceContext, isDirectory ? Res.Folder : extension, resources.RowFormat, typeRect, detailBrush);
             }
 
-            if (!isDirectory)
+            if (!isDirectory && entry.Size > 0)
             {
                 text.Clear();
                 text.AppendSize(entry.Size);

@@ -74,6 +74,32 @@ internal sealed class RenderResources : IDisposable
         BadBrush = deviceContext.CreateSolidColorBrush(Theme.Bad);
     }
 
+    // how long the last frame took, which is what every hover fade advances by.
+    // it lives here because every Render already receives these resources, and it is the only per frame state among them.
+    public float ElapsedSeconds { get; set; }
+
+    // set by anything still animating, and the window draws another frame while it is set.
+    public bool Animating { get; set; }
+
+    // fills with the hover colour at whatever point of the fade the animation has reached.
+    public void FillHover(IComObject<ID2D1DeviceContext> deviceContext, in D2D_RECT_F rect, float opacity, float radius = 0)
+    {
+        if (opacity <= 0)
+            return;
+
+        HoverBrush.Object.SetOpacity(opacity);
+        if (radius > 0)
+        {
+            deviceContext.Object.FillRoundedRectangle(new D2D1_ROUNDED_RECT { rect = rect, radiusX = radius, radiusY = radius }, HoverBrush.Object);
+        }
+        else
+        {
+            deviceContext.FillRectangle(rect, HoverBrush);
+        }
+
+        HoverBrush.Object.SetOpacity(1);
+    }
+
     // includes the zoom factor, so everything sized from it scales together.
     public float DpiScale { get; }
     public float Zoom { get; }

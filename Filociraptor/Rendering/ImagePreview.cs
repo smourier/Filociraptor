@@ -1,7 +1,7 @@
 ﻿namespace Filociraptor.Rendering;
 
-// a bigger look at the image under the pointer. it uses the same loader as the thumbnails, so it costs one more
-// cached image and nothing at all on the UI thread.
+// a bigger look at the image under the pointer.
+// it uses the same loader as the thumbnails, so it costs one more cached image and nothing at all on the UI thread.
 internal sealed class ImagePreview
 {
     // the preview takes this much of the window, so it is the same size whatever the picture is.
@@ -50,8 +50,7 @@ internal sealed class ImagePreview
         if (size.width <= 0 || size.height <= 0)
             return;
 
-        // the picture keeps its proportions and fills the box, enlarged when it is smaller than the box, so a
-        // preview is the same size whatever it is showing.
+        // the picture keeps its proportions and fills the box, enlarged when it is smaller than the box, so a preview is the same size whatever it is showing.
         var fit = MathF.Min(boxWidth / size.width, boxHeight / size.height);
         var width = MathF.Round(size.width * fit);
         var height = MathF.Round(size.height * fit);

@@ -169,15 +169,6 @@ namespace Filociraptor {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Drives.
-        /// </summary>
-        internal static string Drives {
-            get {
-                return ResourceManager.GetString("Drives", resourceCulture);
-            }
-        }
-        
-        /// <summary>
         ///   Looks up a localized string similar to unknown size.
         /// </summary>
         internal static string DriveUnknownSize {

@@ -13,7 +13,7 @@ internal static class Theme
     public static D3DCOLORVALUE SuperHiddenText { get; } = new(0x59E4E4E4U);
     public static D3DCOLORVALUE SuperHiddenFolderText { get; } = new(0x59E3C07BU);
     public static D3DCOLORVALUE Selection { get; } = new(0xFF0A5A96U);
-    public static D3DCOLORVALUE Hover { get; } = new(0xFF2A2A2AU);
+    public static D3DCOLORVALUE Hover { get; } = new(0x22FFFFFFU);
     public static D3DCOLORVALUE Line { get; } = new(0xFF323232U);
     public static D3DCOLORVALUE Scrollbar { get; } = new(0xFF4D4D4DU);
     public static D3DCOLORVALUE PaneBackground { get; } = new(0xFF202020U);

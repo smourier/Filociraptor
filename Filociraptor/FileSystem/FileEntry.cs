@@ -10,12 +10,14 @@ internal struct FileEntry
     // offset of the extension inside the name, dot included, negative when there is none.
     public int ExtensionOffset;
     public FileAttributes Attributes;
+
+    // where the parsing name sits in the arena, for an item that came from the namespace. negative for a file on disk, whose parsing name is just its folder and its name.
+    public int ParsingOffset;
+    public int ParsingLength;
     public long Size;
     public long LastWriteTicks;
 
     public readonly bool IsDirectory => (Attributes & FileAttributes.Directory) != 0;
     public readonly bool IsHidden => (Attributes & FileAttributes.Hidden) != 0;
-
-    // what Windows calls a protected operating system file, hidden and system together.
     public readonly bool IsSuperHidden => (Attributes & (FileAttributes.Hidden | FileAttributes.System)) == (FileAttributes.Hidden | FileAttributes.System);
 }

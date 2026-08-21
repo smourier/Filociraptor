@@ -21,12 +21,14 @@ internal sealed class ImageCache : IDisposable
     private readonly Dictionary<string, string> _typeNames = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _pending = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> _perFileKeys = [];
+    private readonly HashSet<string> _failed = new(StringComparer.OrdinalIgnoreCase);
     private readonly ShellImageLoader _loader;
     private string? _preview;
 
     private readonly Dictionary<string, IComObject<ID2D1Bitmap>>.AlternateLookup<ReadOnlySpan<char>> _bitmapLookup;
     private readonly Dictionary<string, string>.AlternateLookup<ReadOnlySpan<char>> _typeNameLookup;
     private readonly HashSet<string>.AlternateLookup<ReadOnlySpan<char>> _pendingLookup;
+    private readonly HashSet<string>.AlternateLookup<ReadOnlySpan<char>> _failedLookup;
 
     public ImageCache(Action imageReady)
     {
@@ -34,6 +36,7 @@ internal sealed class ImageCache : IDisposable
         _bitmapLookup = _bitmaps.GetAlternateLookup<ReadOnlySpan<char>>();
         _typeNameLookup = _typeNames.GetAlternateLookup<ReadOnlySpan<char>>();
         _pendingLookup = _pending.GetAlternateLookup<ReadOnlySpan<char>>();
+        _failedLookup = _failed.GetAlternateLookup<ReadOnlySpan<char>>();
     }
 
     public static bool IsSelfIconed(ReadOnlySpan<char> extension)
@@ -50,14 +53,9 @@ internal sealed class ImageCache : IDisposable
     public IComObject<ID2D1Bitmap>? Get(ReadOnlySpan<char> key) => _bitmapLookup.TryGetValue(key, out var bitmap) ? bitmap : null;
     public string? GetTypeName(ReadOnlySpan<char> key) => _typeNameLookup.TryGetValue(key, out var name) ? name : null;
 
-    // the system image list covers every icon size the views ask for, so sharing is only ruled out by a file that
-    // carries its own icon, or by a thumbnail, which is by definition about the one file.
-    private static bool CanShare(bool isDirectory, bool wantThumbnail, ReadOnlySpan<char> extension) =>
-        !wantThumbnail && (isDirectory || !IsSelfIconed(extension));
+    private static bool CanShare(bool isDirectory, bool wantThumbnail, ReadOnlySpan<char> extension) => !wantThumbnail && (isDirectory || !IsSelfIconed(extension));
 
     // the one entry point the views use. it returns whatever is ready and queues whatever is not, never blocking.
-    // the shell keeps icons at a handful of sizes. asking for one of those and letting Direct2D shrink it looks
-    // far better than asking for an odd size and having it stretched to fit.
     public static int StandardSize(int size)
     {
         foreach (var standard in _standardSizes)
@@ -69,21 +67,33 @@ internal sealed class ImageCache : IDisposable
         return _standardSizes[^1];
     }
 
+    // parsingName is empty for a file on disk, whose identity is its folder and its name.
+    // an item the namespace described carries one, because there is no folder to join it to.
     public IComObject<ID2D1Bitmap>? GetOrRequest(
         ReadOnlySpan<char> name,
         ReadOnlySpan<char> extension,
         bool isDirectory,
         string folderPath,
         int size,
-        bool wantThumbnail)
+        bool wantThumbnail,
+        ReadOnlySpan<char> parsingName = default,
+        bool keep = false)
     {
         size = StandardSize(size);
         Span<char> buffer = stackalloc char[_maxKeyLength];
         var key = new ScratchText(buffer);
-        var shared = CanShare(isDirectory, wantThumbnail, extension);
+
+        // a namespace item has nothing an extension could be shared on, so it is always asked for by itself.
+        var shared = parsingName.Length == 0 && CanShare(isDirectory, wantThumbnail, extension);
         if (shared)
         {
             AppendSharedKey(ref key, extension, isDirectory, size);
+        }
+        else if (parsingName.Length > 0)
+        {
+            key.Append(size);
+            key.Append('|');
+            key.Append(parsingName);
         }
         else
         {
@@ -112,14 +122,14 @@ internal sealed class ImageCache : IDisposable
         else
         {
             var kind = wantThumbnail ? ShellImageKind.Thumbnail : ShellImageKind.FileIcon;
-            Request(key.Text, Path.Join(folderPath, name), kind, size, isDirectory);
+            var target = parsingName.Length > 0 ? parsingName.ToString() : Path.Join(folderPath, name);
+            Request(key.Text, target, kind, size, isDirectory, keep: keep);
         }
 
         return null;
     }
 
-    // the preview is decoded from the file by WIC rather than taken from the shell, and is keyed apart from the
-    // thumbnail of the same file because it is a different picture at a different size.
+    // the preview is decoded from the file by WIC rather than taken from the shell
     public IComObject<ID2D1Bitmap>? GetOrRequestPreview(ReadOnlySpan<char> name, string folderPath, int size)
     {
         size = StandardSize(size);
@@ -136,8 +146,8 @@ internal sealed class ImageCache : IDisposable
 
         key.Append(name);
 
-        // a decoded picture is megabytes, not kilobytes like an icon, and only one is ever on screen. so the
-        // previous one goes as soon as a different one is wanted.
+        // a decoded picture is megabytes, not kilobytes like an icon, and only one is ever on screen.
+        // so the previous one goes as soon as a different one is wanted.
         if (_preview != null && !key.Text.SequenceEqual(_preview))
         {
             if (_bitmaps.Remove(_preview, out var previous))
@@ -175,14 +185,17 @@ internal sealed class ImageCache : IDisposable
         key.Append(isDirectory ? DirectoryKey : extension.Length > 0 ? extension : NoExtensionKey);
     }
 
-    public void Request(ReadOnlySpan<char> key, string target, ShellImageKind kind, int size, bool isDirectory, string? samplePath = null)
+    public void Request(ReadOnlySpan<char> key, string target, ShellImageKind kind, int size, bool isDirectory, string? samplePath = null, bool keep = false)
     {
-        if (_bitmapLookup.ContainsKey(key) || _pendingLookup.Contains(key))
+        if (_bitmapLookup.ContainsKey(key) || _pendingLookup.Contains(key) || _failedLookup.Contains(key))
             return;
 
         var text = key.ToString();
         _pending.Add(text);
-        if (kind != ShellImageKind.ExtensionIcon)
+
+        // the left pane is not the listing, so navigating must not throw its icons away, nor drop the ones still on their way.
+        // they would come back a moment later and the pane would blink on every navigation.
+        if (kind != ShellImageKind.ExtensionIcon && !keep)
         {
             _perFileKeys.Add(text);
         }
@@ -194,23 +207,27 @@ internal sealed class ImageCache : IDisposable
             Size = size,
             Kind = kind,
             IsDirectory = isDirectory,
-            Generation = _loader.Generation,
+            Generation = keep ? ShellImageRequest.NeverStale : _loader.Generation,
             SamplePath = samplePath,
-
-            // thumbnails are asked for twice, cheaply first, so a fast scroll shows whatever is already known.
             CachedOnly = kind == ShellImageKind.Thumbnail,
         });
     }
 
-    // turns finished pixels into device bitmaps, a bounded number per frame so a burst of arrivals cannot
-    // turn into a visible hitch.
-    public unsafe void Upload(IComObject<ID2D1DeviceContext> deviceContext)
+    // turns finished pixels into device bitmaps, a bounded number per frame so a burst of arrivals cannot turn into a visible hitch.
+    // returns true when it stopped at that bound rather than because the queue ran dry, which means another frame is owed, otherwise a backlog would wait for something else to happen to draw.
+    public unsafe bool Upload(IComObject<ID2D1DeviceContext> deviceContext)
     {
         var generation = _loader.Generation;
-        for (var i = 0; i < _maxUploadsPerFrame && _loader.TryDequeue(out var image); i++)
+        var uploaded = 0;
+        for (; uploaded < _maxUploadsPerFrame && _loader.TryDequeue(out var image); uploaded++)
         {
             _pending.Remove(image.Key);
-            if (image.Generation != generation || image.Width == 0 || image.Height == 0)
+            if (image.Width == 0 || image.Height == 0)
+            {
+                _failed.Add(image.Key);
+            }
+
+            if ((image.Generation != ShellImageRequest.NeverStale && image.Generation != generation) || image.Width == 0 || image.Height == 0)
                 continue;
 
             if (image.TypeName != null)
@@ -241,10 +258,12 @@ internal sealed class ImageCache : IDisposable
                 _bitmaps[image.Key] = bitmap;
             }
         }
+
+        return uploaded == _maxUploadsPerFrame;
     }
 
-    // a new folder invalidates everything keyed by path. the icons shared by extension stay, they are the same
-    // everywhere and they are what makes the next listing appear already populated.
+    // a new folder invalidates everything keyed by path.
+    // the icons shared by extension stay, they are the same everywhere and they are what makes the next listing appear already populated.
     public void OnNavigate()
     {
         _loader.NextGeneration();
@@ -259,6 +278,9 @@ internal sealed class ImageCache : IDisposable
         }
 
         _perFileKeys.Clear();
+
+        // reading a folder again is also how someone asks for another try at whatever had no icon.
+        _failed.Clear();
         _preview = null;
     }
 

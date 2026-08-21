@@ -22,8 +22,9 @@ internal static class DriveScanner
         {
             return [.. DriveInfo.GetDrives().Select(d => d.Name)];
         }
-        catch
+        catch (Exception ex)
         {
+            Application.TraceError($"the drives could not be listed: {ex}");
             return [];
         }
     }
@@ -48,9 +49,9 @@ internal static class DriveScanner
                 free = info.AvailableFreeSpace;
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // an unreadable drive still belongs in the list, just without its details.
+            Application.TraceVerbose($"'{root}' could not be described: {ex.Message}");
         }
 
         return new DriveEntry

@@ -12,12 +12,23 @@
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 		<IsAotCompatible>true</IsAotCompatible>
 		<ApplicationManifest>app.manifest</ApplicationManifest>
+		<ApplicationIcon>Filociraptor.ico</ApplicationIcon>
 		<WindowsSdkPackageVersion>10.0.26100.57</WindowsSdkPackageVersion>
 		<Platforms>x64;ARM64;x86</Platforms>
-		<Version>1.0.0</Version>
+
+		<Title>Filociraptor</Title>
+		<Company>Simon Mourier</Company>
+		<Authors>Simon Mourier</Authors>
+		<Product>Filociraptor</Product>
+		<AssemblyTitle>Filociraptor</AssemblyTitle>
 		<Description>A fast Windows file manager in C#, Direct2D and NativeAOT.</Description>
-		<Copyright>Copyright © 2026 Simon Mourier. All rights reserved.</Copyright>
-		<ApplicationIcon>Filociraptor.ico</ApplicationIcon>
+		<Copyright>Copyright (C) 2024-$([System.DateTime]::UtcNow.ToString("yyyy")) Simon Mourier. All rights reserved.</Copyright>
+
+		<ProductVersion>1.1.0</ProductVersion>
+		<Version>1.1.0</Version>
+		<FileVersion>1.1.0</FileVersion>
+		<InformationalVersion>1.1.0</InformationalVersion>
+		<SourceRevisionId>$([System.DateTime]::UtcNow.ToString("yyyyMMddHHmmss"))</SourceRevisionId>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -39,9 +50,9 @@
 	<ItemGroup>
 		<PackageReference Include="DirectNAot" Version="1.6.5" />
 		<PackageReference Include="DirectNAot.Extensions" Version="1.6.5" />
-		<PackageReference Include="ShellN" Version="1.0.1" />
+		<PackageReference Include="ShellN" Version="1.0.8" />
 		<PackageReference Include="WicNetCore" Version="1.9.3" />
-		<PackageReference Include="ShellN.Extensions" Version="1.0.1" />
+		<PackageReference Include="ShellN.Extensions" Version="1.0.8" />
 	</ItemGroup>
 
 	<ItemGroup>

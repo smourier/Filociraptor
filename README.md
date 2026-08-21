@@ -6,7 +6,7 @@ A fast Windows file manager in C#, DirectX, Direct2D and NativeAOT for x86, x64 
 
 The point of this project is speed. It exists to show that a managed, ahead of time compiled application can list, sort and draw very large folders as fast as a native one.
 
-**It is a demonstration, not a replacement for Explorer.** Explorer is a shell namespace browser with decades of behaviour behind it, and this is a file browser that reads the file system directly. 
+**It is a demonstration, not a replacement for Explorer.** Explorer has decades of behaviour behind it, and this reads the file system directly wherever it can, asking the shell only where there is no folder on disk to read. 
 What is here, though, is not a mock up. It browses, sorts, previews and opens real files, at speeds Explorer does not reach, and it is pleasant enough to use for real work.
 
 ## Numbers
@@ -31,26 +31,32 @@ filo bench "C:\Windows\WinSxS" 3
 * one icon per extension rather than one per file, so a folder of 2 000 files costs a single call.
 * the listing is virtualised and drawn on the GPU, so the folder size does not change what a frame costs.
 * names are ordered exactly as Explorer orders them, punctuation before letters and runs of digits compared as numbers, which costs more than a plain sort and is worth it.
+* the namespace costs several times what reading a folder costs, an object and a handful of calls for every item, so it is used only where there is nothing on disk to read. This PC, a phone, the recycle bin. Those hold a few items, never thousands, so it never shows.
+* the window draws only when something changed, and while something is fading it draws in step with the monitor rather than as fast as it can.
 
 ## What it does
 
-* browses drives and folders, with back, forward and up, and the drive pane always current.
+* browses drives and folders, with back, forward and up, and the left pane always current.
+* browses the shell namespace as well, This PC, the recycle bin, a phone or a camera plugged in, the network, the libraries and your own folders. A folder on disk still takes the fast path above, the namespace is used only where there is no path to read.
+* the left pane lists the drives, with their space used, and under them the same places Explorer shows at the top of its tree.
 * supports all unicode characters in names.
 * notices drives arriving and leaving, including mapped network drives, and moves off a drive that is pulled out.
-* follows the folder on screen, so a file created or deleted by anything else appears or disappears on its own.
+* follows the folder on screen, so a file created or deleted by anything else appears or disappears on its own. Namespace folders are watched too, so emptying the recycle bin shows up straight away.
 * details, small, medium and large icons, and thumbnails, with real shell icons and thumbnails.
 * shows or hides hidden and protected operating system files, faded rather than merely listed.
 * a large view of any image WIC can decode, on hover.
-* the real Explorer context menu, with installed handlers appearing in it (ie: where "Share" works).
+* the real Explorer context menu, with installed handlers appearing in it (ie: where "Share" works), on an item, and on the empty space around them the same menu for the folder you are in.
+* opens a folder from that menu in place rather than handing it to Explorer, and "open in new process" starts another one of these instead, beside the window it came from.
 * opens files with their default command, and reveals anything in Explorer.
-* global zoom, sortable columns, keyboard navigation, and its own title bar.
+* takes the folder to open on the command line, `filo "C:\Windows"`, and shell names as well, so `filo "shell:Downloads"` works.
+* global zoom, sortable columns, keyboard navigation, and its own title bar, with the buttons, the column headers and the rows lighting up under the pointer.
 
 ## What it does not do
 
 * **no file operations at all.** No copy, move, rename, delete or new folder, and no drag and drop. The context menu can do some of it because that menu is Explorer's, not ours.
 * no multiple selection, one item at a time.
 * no address bar, no typing or pasting a path, and no search.
-* no shell namespace, so no This PC, no Recycle Bin, no zip folders, no libraries and no cloud placeholders. It browses the file system, nothing more.
+* the namespace is for browsing only. You can walk into This PC, a phone or the recycle bin and look, but nothing comes back out, because there are no file operations.
 * no tabs, no favourites, no settings, and nothing is remembered between runs.
 * no accessibility. Everything is custom drawn, so a screen reader sees an empty window.
 
@@ -62,12 +68,12 @@ because the hard parts are already solved by three libraries that between them c
 * [DirectN](https://github.com/smourier/DirectNAot) gives the whole of DirectX, Direct2D, DirectWrite and Win32, ahead of time compiled and without a wrapper in the way.
 * [ShellN](https://github.com/smourier/ShellBat) gives the shell itself, so the namespace, the property system, context menus, drag and drop and file operations are all reachable.
 * [WicNet](https://github.com/smourier/WicNet) gives every image format Windows can decode.
-* 
-Multiple selection and file operations are the first two steps, and both are shell work that ShellN already exposes. After that an address bar, then the namespace, and at that point the word demonstration stops applying.
+
+The namespace was the first of these steps and it is done. Multiple selection and file operations are the next two, and both are shell work that ShellN already exposes. After that an address bar, and at that point the word demonstration stops applying.
 
 ## Using it
 
-A pane of drives on the left, the listing on the right, and a splitter between them. The title bar carries the navigation buttons, the view slider and the current zoom, and shortens the path when there is no room for it.
+The drives and the places you can go on the left, the listing on the right, and a splitter between them. The title bar carries the navigation buttons, the view slider and the current zoom, and shortens the path when there is no room for it.
 
 | Action | How |
 | --- | --- |
@@ -76,7 +82,10 @@ A pane of drives on the left, the listing on the right, and a splitter between t
 | show the folder in Explorer | the fourth button |
 | show hidden and protected system files | the fifth button, they appear faded |
 | a large view of an image, decoded by WIC | hover it, `Esc` or move away to dismiss |
-| the Explorer context menu for an item | right click |
+| the Explorer context menu for an item | right click it |
+| the same menu for the folder you are in | right click the empty space around the items |
+| another window on a folder, as its own process | "open in new process" in that menu, it opens beside this one |
+| start on a particular folder | `filo "C:\Windows"`, or a shell name like `filo "shell:Downloads"` |
 | details, small, medium and large icons, thumbnails | the slider, or `Ctrl` with `1` to `5` |
 | zoom text, icons and thumbnails together | `Ctrl` with the wheel |
 | rescan now | `F5` |

@@ -1,8 +1,14 @@
-﻿namespace Filociraptor;
+﻿using ShellN.Extensions;
+
+namespace Filociraptor;
 
 internal sealed class MainWindow : D3D11SwapChainWindow
 {
     private const string _title = "Filociraptor";
+    private const string _positionArgument = "position";
+
+    // a frame longer than this is treated as this long, the window having been idle rather than slow.
+    private const float _maxFrameSeconds = 1f / 30;
     private const float _defaultDpi = 96;
     private const int _wheelDeltaShift = 16;
     private const int _hitTestClient = 1;
@@ -19,7 +25,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
     private readonly FolderItems _items = new();
     private readonly DetailsView _details = new();
     private readonly GridView _grid = new();
-    private readonly DrivesView _drives = new();
+    private readonly PlacesView _places = new();
     private readonly TitleBar _titleBar = new();
     private readonly Stack<string> _back = [];
     private readonly Stack<string> _forward = [];
@@ -42,17 +48,23 @@ internal sealed class MainWindow : D3D11SwapChainWindow
     private IComObject<ID2D1Bitmap1>? _target;
     private RenderResources? _resources;
     private readonly FolderWatcher _watcher;
+    private readonly NamespaceWatcher _namespaceWatcher;
     private readonly DriveNotifier _driveNotifier = new();
     private ImageCache? _images;
     private CancellationTokenSource? _scan;
     private CancellationTokenSource? _driveScan;
     private static readonly string _defaultPath = Path.GetPathRoot(Environment.SystemDirectory) ?? @"C:\";
+    private ShellLocation _location = ShellLocation.ForPath(_defaultPath);
     private string _path = string.Empty;
     private string _titleText = _title;
     private bool _continuous;
     private ViewMode _mode = ViewMode.Details;
     private float _zoom = 1;
     private bool _showHidden;
+    private bool _listed;
+    private long _lastFrame;
+    private bool _repaintOwed;
+    private bool _imagesReady;
     private float _restoreScroll;
     private int _restoreSelection = -1;
 
@@ -65,10 +77,12 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         _details.ItemActivated = OnItemActivated;
         _details.SortRequested = OnSortRequested;
         _grid.ItemActivated = OnItemActivated;
-        _drives.DriveActivated = drive => Navigate(drive.Root);
+        _places.DriveActivated = drive => Navigate(drive.Root);
+        _places.PlaceActivated = OnPlaceActivated;
         _titleBar.NavigationPressed = OnNavigationButton;
         _titleBar.Slider.ModeChanged = mode => Mode = mode;
         _watcher = new FolderWatcher(OnFolderChanged);
+        _namespaceWatcher = new NamespaceWatcher(OnFolderChanged);
         _hoverTimer = new Timer(_ => OnHoverElapsed(), null, Timeout.Infinite, Timeout.Infinite);
         _driveNotifier.Notified += OnDrivesChanged;
     }
@@ -100,9 +114,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
 
     protected override Icon? LoadCreationIcon() => Icon.LoadApplicationIcon(32);
 
-    // the base constructor creates the window, and the device with it, so this has to be a property override.
-    // assigning the flag in the constructor body would happen long after the device was built without it.
-    // Direct2D refuses to sit on a D3D11 device created without BGRA support, and says only E_INVALIDARG about it.
     protected override D3D11_CREATE_DEVICE_FLAG DeviceCreateFlags
     {
         get => base.DeviceCreateFlags | D3D11_CREATE_DEVICE_FLAG.D3D11_CREATE_DEVICE_BGRA_SUPPORT;
@@ -138,7 +149,11 @@ internal sealed class MainWindow : D3D11SwapChainWindow
     }
 
     // called from a shell worker thread. InvalidateRect only posts, so this is safe from anywhere.
-    private void OnImageReady() => Invalidate();
+    private void OnImageReady()
+    {
+        Volatile.Write(ref _imagesReady, true);
+        Invalidate();
+    }
 
     protected override void DisposeDeviceDependentResources()
     {
@@ -202,13 +217,25 @@ internal sealed class MainWindow : D3D11SwapChainWindow
 
         _counters.BeginFrame();
 
+        // hover fades advance by the time the last frame took, so they run at the same speed whatever the frame rate.
+        var now = Stopwatch.GetTimestamp();
+        var elapsed = _lastFrame == 0 ? 0 : (float)((now - _lastFrame) / (double)Stopwatch.Frequency);
+        _lastFrame = now;
+
+        // a frame that arrives long after the previous one, the window having sat idle, must not jump a fade straight to its end.
+        resources.ElapsedSeconds = MathF.Min(elapsed, _maxFrameSeconds);
+        resources.Animating = false;
+
+        // cleared before the upload below, so an image arriving during this frame still counts as owed rather than being swallowed by the frame that was already running.
+        Volatile.Write(ref _imagesReady, false);
+
         var client = ClientRect;
         var bounds = new D2D_RECT_F { left = 0, top = 0, right = client.Width, bottom = client.Height };
         _titleBar.IsMaximized = IsZoomed;
         _titleBar.Update(bounds, DpiScale);
         _titleBar.BackEnabled = _back.Count > 0;
         _titleBar.ForwardEnabled = _forward.Count > 0;
-        _titleBar.UpEnabled = !string.IsNullOrEmpty(Path.GetDirectoryName(_path));
+        _titleBar.UpEnabled = _location.ParsingName.Length > 0;
         Layout(DpiScale, bounds);
 
         var view = View;
@@ -217,11 +244,12 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         _counters.BufferBytes = _items.BufferBytes;
 
         // finished shell pixels become device bitmaps here, on the thread that owns the device.
-        _images?.Upload(context);
+        // it uploads a bounded number per frame, so a backlog owes another frame to finish draining.
+        var moreImages = _images?.Upload(context) == true;
 
         context.BeginDraw();
         context.Clear(Theme.Background);
-        _drives.Render(context, resources);
+        _places.Render(context, resources, _images);
         context.FillRectangle(_splitterBounds, _splitterHot || _splitterDragging ? resources.SplitterHotBrush : resources.SplitterBrush);
         if (_images != null)
         {
@@ -239,10 +267,11 @@ internal sealed class MainWindow : D3D11SwapChainWindow
 
         _counters.EndFrame();
 
-        // no wait on the present queue, the frame is already the newest thing we have to show.
-        swapChain.Present(0, 0);
+        // something is still fading, so another frame is owed. when nothing is, the window goes quiet again.
+        _repaintOwed = _continuous || resources.Animating || moreImages;
+        swapChain.Present(_repaintOwed ? 1u : 0, 0);
 
-        if (_continuous)
+        if (_repaintOwed)
         {
             Invalidate();
         }
@@ -256,7 +285,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         var maximum = MathF.Max(minimum, bounds.right - splitter - _minListWidth * scale);
         var width = Math.Clamp(MathF.Round(_paneWidth * scale), minimum, maximum);
 
-        _drives.Bounds = new D2D_RECT_F { left = bounds.left, top = top, right = width, bottom = bounds.bottom };
+        _places.Bounds = new D2D_RECT_F { left = bounds.left, top = top, right = width, bottom = bounds.bottom };
         _splitterBounds = new D2D_RECT_F { left = width, top = top, right = width + splitter, bottom = bounds.bottom };
         var list = new D2D_RECT_F { left = width + splitter, top = top, right = bounds.right, bottom = bounds.bottom };
         _details.Bounds = list;
@@ -265,8 +294,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
 
     private static bool Contains(in D2D_RECT_F rect, float x, float y) => x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom;
 
-    private static int FrameThickness =>
-        Functions.GetSystemMetrics(SYSTEM_METRICS_INDEX.SM_CXFRAME) + Functions.GetSystemMetrics(SYSTEM_METRICS_INDEX.SM_CXPADDEDBORDER);
+    private static int FrameThickness => Functions.GetSystemMetrics(SYSTEM_METRICS_INDEX.SM_CXFRAME) + Functions.GetSystemMetrics(SYSTEM_METRICS_INDEX.SM_CXPADDEDBORDER);
 
     // the borders left as non client answer for themselves, only the top edge and the caption are ours.
     private LRESULT HitTest(HWND hwnd, WPARAM wParam, LPARAM lParam)
@@ -296,17 +324,33 @@ internal sealed class MainWindow : D3D11SwapChainWindow
     private void RenderNow()
     {
         RenderCore();
+
+        // an immediate frame makes any pending paint redundant, which is why the window is validated here.
         Validate();
+        if (_repaintOwed || Volatile.Read(ref _imagesReady))
+        {
+            Invalidate();
+        }
     }
 
     public void LoadDrives()
     {
         _ = LoadDrivesAsync();
+        _ = LoadPlacesAsync();
         _ = _driveNotifier.Start();
     }
 
+    // the places the shell offers, which unlike the drives do not come and go, so they are read once.
+    private async Task LoadPlacesAsync()
+    {
+        var places = await PlacesScanner.ScanAsync(CancellationToken.None).ConfigureAwait(true);
+        _places.SetPlaces(places);
+        _places.SyncTo(_location);
+        RenderNow();
+    }
+
     // the shell reports a drive appearing or going away from its own thread.
-    private void OnDrivesChanged(object? sender, ShellN.Extensions.ChangeNotifyEventArgs e)
+    private void OnDrivesChanged(object? sender, ChangeNotifyEventArgs e)
     {
         try
         {
@@ -315,15 +359,15 @@ internal sealed class MainWindow : D3D11SwapChainWindow
                 _ = LoadDrivesAsync();
 
                 // the listing may have been sitting on the drive that just went away.
-                if (!Directory.Exists(_path))
+                if (_location.IsFileSystem && !Directory.Exists(_path))
                 {
-                    Navigate(_path);
+                    Navigate(_location.ParsingName);
                 }
             });
         }
-        catch
+        catch (Exception ex)
         {
-            // the window is on its way out.
+            Application.TraceVerbose($"a drive change was dropped: {ex.Message}");
         }
     }
 
@@ -339,7 +383,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
 
         var scan = new CancellationTokenSource();
         _driveScan = scan;
-        _drives.Clear();
+        _places.Clear();
 
         try
         {
@@ -348,28 +392,85 @@ internal sealed class MainWindow : D3D11SwapChainWindow
                 if (scan.IsCancellationRequested)
                     return;
 
-                _drives.Add(drive);
-                _drives.SyncTo(_path);
+                _places.Add(drive);
+                _places.SyncTo(_location);
                 RenderNow();
             }
         }
         catch (OperationCanceledException)
         {
-            // a newer listing took over.
+            // continue
         }
     }
 
     public void Navigate(string path) => _ = NavigateAsync(path);
 
-    private void NavigateFrom(string path)
+    // a place carries the id list it was enumerated with, so it opens through that rather than through a name the shell may refuse to parse back.
+    private void OnPlaceActivated(PlaceEntry place)
     {
-        if (!string.IsNullOrEmpty(_path) && !string.Equals(_path, path, StringComparison.OrdinalIgnoreCase))
+        using var item = ShellItems.Bind(place.IdList) ?? ShellItems.Parse(place.ParsingName, true);
+        var location = item == null ? null : ShellLocation.From(item);
+        if (location == null)
         {
-            _back.Push(_path);
+            Application.TraceWarning($"'{place.ParsingName}' could not be opened.");
+            return;
+        }
+
+        NavigateFrom(location);
+    }
+
+    private void NavigateFrom(string path, bool newProcess = false) => NavigateFrom(path, null, newProcess);
+
+    private void NavigateFrom(ShellLocation location, bool newProcess = false) => NavigateFrom(location.ParsingName, location, newProcess);
+
+    private void NavigateFrom(string path, ShellLocation? resolved, bool newProcess)
+    {
+        if (newProcess)
+        {
+            StartNewProcess(path);
+            return;
+        }
+
+        var current = _location.ParsingName;
+        if (!string.IsNullOrEmpty(current) && !string.Equals(current, path, StringComparison.OrdinalIgnoreCase))
+        {
+            _back.Push(current);
             _forward.Clear();
         }
 
-        Navigate(path);
+        _ = NavigateAsync(path, resolved);
+    }
+
+    // "open in new process" means what it says, another one of us rather than another folder in this one.
+    // where this window sits goes with it, so the new one opens beside this one instead of exactly on top of it.
+    private void StartNewProcess(string path)
+    {
+        var executable = Environment.ProcessPath;
+        if (executable == null)
+            return;
+
+        var arguments = $"{Quote(path)} -{_positionArgument}:{WindowRect}";
+
+        try
+        {
+            var info = new ProcessStartInfo { FileName = executable, Arguments = arguments, UseShellExecute = false };
+            using var process = Process.Start(info);
+        }
+        catch (Exception ex)
+        {
+            Application.TraceError($"another instance could not be started on '{path}': {ex}");
+        }
+    }
+
+    private static string Quote(string value)
+    {
+        var trailing = 0;
+        while (trailing < value.Length && value[value.Length - 1 - trailing] == '\\')
+        {
+            trailing++;
+        }
+
+        return string.Concat("\"", value, new string('\\', trailing), "\"");
     }
 
     private void GoBack()
@@ -377,7 +478,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         if (_back.Count == 0)
             return;
 
-        _forward.Push(_path);
+        _forward.Push(_location.ParsingName);
         Navigate(_back.Pop());
     }
 
@@ -386,21 +487,20 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         if (_forward.Count == 0)
             return;
 
-        _back.Push(_path);
+        _back.Push(_location.ParsingName);
         Navigate(_forward.Pop());
     }
 
     // the watcher runs on its own thread, and everything it touches belongs to the UI one.
-    // this is a timer callback, so anything thrown here would take the process with it rather than surface.
     private void OnFolderChanged()
     {
         try
         {
             _ = RunTaskOnUIThread(Refresh);
         }
-        catch
+        catch (Exception ex)
         {
-            // the window is on its way out, and a listing that no longer refreshes is not worth a crash.
+            Application.TraceVerbose($"a folder change was dropped: {ex.Message}");
         }
     }
 
@@ -433,10 +533,9 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         }
     }
 
-    // opens Explorer on the current folder, with the selected item picked out when there is one.
     private unsafe void RevealInExplorer()
     {
-        using var folder = ShellItems.Parse(_path, true);
+        using var folder = _location.Bind();
         using var folderList = folder?.GetIdList(false);
         if (folderList is null)
             return;
@@ -448,8 +547,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
             return;
         }
 
-        ref readonly var entry = ref _items.EntryAt(position);
-        using var item = ShellItems.Parse(Path.Join(_path, _items.NameOf(entry)), entry.IsDirectory);
+        using var item = ItemFor(position);
         using var itemList = item?.GetIdList(false);
         if (itemList is null)
         {
@@ -475,8 +573,24 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         return fallback;
     }
 
-    private async Task NavigateAsync(string path)
+    private async Task NavigateAsync(string path, ShellLocation? resolved = null)
     {
+        var location = resolved ?? ShellLocation.Resolve(path);
+        if (location == null)
+        {
+            // a namespace name has no parent to walk up to, its segments are not directories
+            if (ShellLocation.IsNamespaceName(path) && _listed)
+            {
+                Application.TraceWarning($"'{path}' could not be resolved, staying in '{_location.ParsingName}'.");
+                return;
+            }
+
+            // a folder on disk may simply have gone, with a deleted directory or an unplugged drive, and then go to nearest parent
+            var existing = FirstExisting(path, _defaultPath);
+            Application.TraceWarning($"'{path}' could not be resolved, falling back to '{existing}'.");
+            location = ShellLocation.Resolve(existing) ?? ShellLocation.ForPath(existing);
+        }
+
         var previous = _scan;
         if (previous != null)
         {
@@ -487,17 +601,28 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         var scan = new CancellationTokenSource();
         _scan = scan;
 
-        // the folder may have gone since it was last shown, taken with a deleted directory or an unplugged drive.
-        path = FirstExisting(path, _defaultPath);
-        _path = path;
-        _titleText = path;
-        Text = _title + " - " + path;
+        _listed = true;
+        _location = location;
+        _path = location.Path ?? string.Empty;
+        _titleText = location.IsFileSystem ? location.Path! : location.DisplayName;
+        Text = _title + " - " + _titleText;
         _items.Reset();
         View.Reset();
-        _drives.SyncTo(path);
+        _places.SyncTo(_location);
         _preview.Hide();
         _images?.OnNavigate();
-        _watcher.Watch(path);
+
+        // a folder on disk is watched by the file system, anywhere else by the shell
+        if (location.IsFileSystem)
+        {
+            _namespaceWatcher.Stop();
+            _watcher.Watch(location.Path!);
+        }
+        else
+        {
+            _watcher.Stop();
+            _namespaceWatcher.Watch(location);
+        }
         _counters.ScanMilliseconds = 0;
         _counters.SortMilliseconds = 0;
         _counters.FirstRowsMilliseconds = 0;
@@ -508,7 +633,9 @@ internal sealed class MainWindow : D3D11SwapChainWindow
 
         try
         {
-            await foreach (var count in DirectoryScanner.ScanAsync(path, _items, _showHidden, scan.Token).ConfigureAwait(true))
+            var scanner = location.IsFileSystem ? DirectoryScanner.ScanAsync(location.Path!, _items, _showHidden, scan.Token) : NamespaceScanner.ScanAsync(location, _items, _showHidden, scan.Token);
+
+            await foreach (var count in scanner.ConfigureAwait(true))
             {
                 if (firstBatch)
                 {
@@ -522,12 +649,14 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         }
         catch (OperationCanceledException)
         {
+            // continue
             return;
         }
         catch (Exception ex)
         {
-            _titleText = path + "  " + ex.Message;
-            Text = _title + " - " + path + " - " + ex.Message;
+            Application.TraceError($"'{location.ParsingName}' could not be listed: {ex}");
+            _titleText += "  " + ex.Message;
+            Text = _title + " - " + _titleText + " - " + ex.Message;
             return;
         }
 
@@ -573,42 +702,70 @@ internal sealed class MainWindow : D3D11SwapChainWindow
             return;
 
         ref readonly var entry = ref _items.EntryAt(position);
-        var path = Path.Join(_path, _items.NameOf(entry));
         if (entry.IsDirectory)
         {
-            NavigateFrom(path);
+            using var item = ItemFor(position);
+            var target = item == null ? null : ShellLocation.From(item);
+            if (target == null)
+            {
+                Application.TraceWarning($"'{ParsingNameOf(entry)}' could not be opened.");
+                return;
+            }
+
+            NavigateFrom(target);
             return;
         }
 
-        Launch(path);
+        Launch(position);
     }
 
-    // runs the same command Explorer would, and does it off the UI thread because launching an application can
-    // take a while and can put up UI of its own. only the path crosses the thread, the shell item is built there.
-    private void Launch(string path)
+    private ShellItem? ItemFor(int position)
     {
+        var bound = ShellItems.Bind(_items.IdListAt(position));
+        if (bound != null)
+            return bound;
+
+        ref readonly var entry = ref _items.EntryAt(position);
+        return ShellItems.Parse(ParsingNameOf(entry), entry.IsDirectory);
+    }
+
+    private string ParsingNameOf(in FileEntry entry)
+    {
+        var parsing = _items.ParsingNameOf(entry);
+        return parsing.Length > 0 ? parsing.ToString() : Path.Join(_location.Path ?? _path, _items.NameOf(entry));
+    }
+
+    // runs the same command Explorer would, and does it off the UI thread because launching an application can take a while and can put up UI of its own
+    private void Launch(int position)
+    {
+        ref readonly var entry = ref _items.EntryAt(position);
+        var path = ParsingNameOf(entry);
+
+        // the id list points into the listing's arena, which the next navigation resets, so it is copied rather than handed to a thread that outlives the row.
+        var idList = _items.IdListAt(position).ToArray();
+
         var owner = Handle;
         _ = Task.Run(() =>
         {
             try
             {
-                using var item = ShellItems.Parse(path, false);
+                using var item = ShellItems.Bind(idList) ?? ShellItems.Parse(path, false);
                 item?.InvokeDefaultCommand(owner, false);
             }
-            catch
+            catch (Exception ex)
             {
-                // a file can have no handler at all, or one that refuses, and neither is worth a crash.
+                Application.TraceError($"'{path}' could not be launched: {ex}");
             }
         });
     }
 
     private void NavigateUp()
     {
-        var parent = Path.GetDirectoryName(_path);
-        if (string.IsNullOrEmpty(parent))
+        var parent = _location.GetParent();
+        if (parent == null)
             return;
 
-        NavigateFrom(parent);
+        NavigateFrom(parent.ParsingName);
     }
 
     protected override LRESULT? WindowProc(HWND hwnd, uint msg, WPARAM wParam, LPARAM lParam)
@@ -620,7 +777,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
             msg == MessageDecoder.WM_MEASUREITEM ||
             msg == MessageDecoder.WM_MENUCHAR)
         {
-            if (ShellN.Extensions.ShellItem.OnContextMenuWindowMessage(Handle, msg, wParam, lParam, out var menuResult).IsSuccess)
+            if (ShellItem.OnContextMenuWindowMessage(Handle, msg, wParam, lParam, out var menuResult).IsSuccess)
                 return menuResult;
         }
 
@@ -736,9 +893,9 @@ internal sealed class MainWindow : D3D11SwapChainWindow
             return;
         }
 
-        if (_drives.IndexAt(_lastMouseX, _lastMouseY) >= 0 || Contains(_drives.Bounds, _lastMouseX, _lastMouseY))
+        if (_places.IndexAt(_lastMouseX, _lastMouseY) >= 0 || Contains(_places.Bounds, _lastMouseX, _lastMouseY))
         {
-            _drives.ScrollByWheel(delta);
+            _places.ScrollByWheel(delta);
         }
         else
         {
@@ -786,7 +943,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
 
         var before = View.HoverPosition;
         changed |= View.SetHover(x, y);
-        changed |= _drives.SetHover(x, y);
+        changed |= _places.SetHover(x, y);
 
         if (View.HoverPosition != before)
         {
@@ -815,9 +972,9 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         {
             _ = RunTaskOnUIThread(ShowPreview);
         }
-        catch
+        catch (Exception ex)
         {
-            // the window is on its way out.
+            Application.TraceVerbose($"a hover preview was dropped: {ex.Message}");
         }
     }
 
@@ -828,7 +985,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
             return;
 
         ref readonly var entry = ref _items.EntryAt(position);
-        if (entry.IsDirectory || !ImageExtensions.CanDecode(_items.ExtensionOf(entry)))
+        if (entry.IsDirectory || !_location.IsFileSystem || !ImageExtensions.CanDecode(_items.ExtensionOf(entry)))
             return;
 
         _preview.Show(position);
@@ -866,7 +1023,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
             return;
         }
 
-        if (_drives.OnClick(x, y))
+        if (_places.OnClick(x, y))
         {
             RenderNow();
             return;
@@ -893,36 +1050,68 @@ internal sealed class MainWindow : D3D11SwapChainWindow
             position = View.PositionAtPoint(point.x, point.y);
         }
 
-        if (position < 0 || position >= _items.Count)
+        var onItem = position >= 0 && position < _items.Count;
+        if (onItem)
+        {
+            View.Select(position);
+            RenderNow();
+        }
+
+        // an item's menu comes from the item, the menu for the empty space around it comes from the folder.
+        using var target = onItem ? ItemFor(position) : _location.Bind();
+        if (target == null)
             return;
 
-        View.Select(position);
-        RenderNow();
-
-        ref readonly var entry = ref _items.EntryAt(position);
-        var path = Path.Join(_path, _items.NameOf(entry));
-        using var item = ShellItems.Parse(path, entry.IsDirectory);
-        if (item == null)
-            return;
-
-        // a popup menu only tracks properly for a window that is in the foreground, and needs a message after it to close cleanly.
-        // without these the menu appears but a click on it is lost.
+        // see https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-trackpopupmenu#remarks
         Functions.SetForegroundWindow(Handle);
 
-        using var site = new ContextMenuSite(Handle);
-        item.ShowContextMenu(site, flags: ShellN.CMF.CMF_EXPLORE | ShellN.CMF.CMF_EXTENDEDVERBS | ShellN.CMF.CMF_CANRENAME);
+        string? verb = null;
+        var site = new ContextMenuSite(Handle);
+        var flags = ShellN.CMF.CMF_EXPLORE | ShellN.CMF.CMF_EXTENDEDVERBS | ShellN.CMF.CMF_CANRENAME;
+        if (onItem)
+        {
+            using var pidl = target.GetIdList(false);
+            if (pidl is null)
+                return;
+
+            using var parent = target.GetParentIdList();
+            if (parent is null)
+                return;
+
+            ShellItem.ShowContextMenu(parent, [pidl], site, flags: flags, invoke: getVerb);
+        }
+        else
+        {
+            target.ShowContextMenu(site, flags: flags, invoke: getVerb);
+        }
 
         Functions.PostMessageW(Handle, MessageDecoder.WM_NULL);
 
+        var requested = site.NavigateToParsingName;
+        if (requested != null)
+        {
+            NavigateFrom(requested, verb.EqualsIgnoreCase("opennewprocess"));
+            return;
+        }
+
         // a command may have renamed or deleted something, so the listing is read again. the view keeps its place, which a plain navigation would throw away.
+        Functions.SetForegroundWindow(Handle);
         Refresh();
+
+        HRESULT getVerb(ShellN.IContextMenu cm, HWND hwnd, uint id)
+        {
+            verb = MenuItem.GetCommandString(cm, id);
+            return ShellItem.Invoke(cm, hwnd, id);
+        }
     }
 
     private void Refresh()
     {
         _restoreScroll = View.ScrollOffset;
         _restoreSelection = View.SelectedPosition;
-        Navigate(_path);
+
+        // the same folder as before
+        _ = NavigateAsync(_location.ParsingName, _location);
     }
 
     private bool OnKeyDown(VIRTUAL_KEY key)
@@ -1013,6 +1202,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
             _scan = null;
             _hoverTimer.Dispose();
             _watcher.Dispose();
+            _namespaceWatcher.Dispose();
             _driveNotifier.Notified -= OnDrivesChanged;
             _driveNotifier.Dispose();
             _driveScan?.Cancel();

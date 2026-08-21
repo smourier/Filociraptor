@@ -32,6 +32,12 @@ internal sealed class TitleBar
     private const char _hiddenGlyph = (char)0xE7B3;
 
     private readonly ViewSlider _slider = new();
+
+    // one per button, in the order they are drawn, so each fades on its own rather than the row flashing together.
+    private readonly HoverAnimation[] _navigationHovers = new HoverAnimation[(int)_navigationCount];
+    private HoverAnimation _minimizeHover;
+    private HoverAnimation _maximizeHover;
+    private HoverAnimation _closeHover;
     private float _scale = 1;
     private string? _compactSource;
     private string? _compacted;
@@ -119,6 +125,21 @@ internal sealed class TitleBar
 
         NavigationPressed?.Invoke(button);
         return true;
+    }
+
+    private ref HoverAnimation HoverOf(int button)
+    {
+        switch (button)
+        {
+            case HitMinimize:
+                return ref _minimizeHover;
+
+            case HitMaximize:
+                return ref _maximizeHover;
+
+            default:
+                return ref _closeHover;
+        }
     }
 
     private bool IsEnabled(NavigationButton button) => button switch
@@ -217,13 +238,21 @@ internal sealed class TitleBar
             bottom = Bounds.bottom - inset,
         };
 
+        var radius = _radius * _scale;
         var on = button == NavigationButton.Hidden && ShowHidden;
-        if (enabled && (on || HotNavigation == button))
+        if (on)
         {
-            var radius = _radius * _scale;
-            var brush = on ? resources.SelectionBrush : resources.HoverBrush;
-            deviceContext.Object.FillRoundedRectangle(new D2D1_ROUNDED_RECT { rect = rect, radiusX = radius, radiusY = radius }, brush.Object);
+            deviceContext.Object.FillRoundedRectangle(new D2D1_ROUNDED_RECT { rect = rect, radiusX = radius, radiusY = radius }, resources.SelectionBrush.Object);
         }
+
+        // a disabled button fades back out rather than dropping its highlight the instant it is disabled.
+        ref var hover = ref _navigationHovers[(int)button - 1];
+        if (hover.Advance(enabled && !on && HotNavigation == button, resources.ElapsedSeconds))
+        {
+            resources.Animating = true;
+        }
+
+        resources.FillHover(deviceContext, rect, hover.Opacity, radius);
 
         Span<char> buffer = [glyph];
         TextDrawing.Draw(deviceContext, buffer, resources.GlyphFormat, rect, enabled ? resources.TextBrush : resources.LineBrush);
@@ -232,9 +261,25 @@ internal sealed class TitleBar
     private void DrawButton(IComObject<ID2D1DeviceContext> deviceContext, RenderResources resources, int button, float left, float width)
     {
         var rect = new D2D_RECT_F { left = left, top = Bounds.top, right = left + width, bottom = Bounds.bottom };
-        if (HotButton == button)
+        ref var hover = ref HoverOf(button);
+        if (hover.Advance(HotButton == button, resources.ElapsedSeconds))
         {
-            deviceContext.FillRectangle(rect, button == HitClose ? resources.BadBrush : resources.HoverBrush);
+            resources.Animating = true;
+        }
+
+        if (button == HitClose)
+        {
+            // close keeps its own colour, so it fades to red rather than to the ordinary grey.
+            if (hover.Opacity > 0)
+            {
+                resources.BadBrush.Object.SetOpacity(hover.Opacity);
+                deviceContext.FillRectangle(rect, resources.BadBrush);
+                resources.BadBrush.Object.SetOpacity(1);
+            }
+        }
+        else
+        {
+            resources.FillHover(deviceContext, rect, hover.Opacity);
         }
 
         var brush = resources.TextBrush;

@@ -34,7 +34,7 @@ internal sealed class FolderWatcher : IDisposable
         {
             var watcher = new FileSystemWatcher(path)
             {
-                // the listing shows names, sizes and dates, so all three are worth hearing about.
+                // we want only these
                 NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.Size | NotifyFilters.LastWrite,
                 IncludeSubdirectories = false,
             };
@@ -49,10 +49,9 @@ internal sealed class FolderWatcher : IDisposable
             watcher.EnableRaisingEvents = true;
             _watcher = watcher;
         }
-        catch
+        catch (Exception ex)
         {
-            // plenty of places refuse to be watched, a disconnected share or a device without notifications,
-            // and a listing that does not refresh itself is better than one that will not open.
+            Application.TraceWarning($"'{path}' could not be watched: {ex.Message}");
             Stop();
         }
     }

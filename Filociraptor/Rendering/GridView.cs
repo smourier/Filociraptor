@@ -216,7 +216,7 @@ internal sealed class GridView : IItemsView
         ref readonly var entry = ref items.EntryAt(position);
         var name = items.NameOf(entry);
         var extension = items.ExtensionOf(entry);
-        var image = images.GetOrRequest(name, extension, entry.IsDirectory, folderPath, (int)iconSize, wantThumbnail);
+        var image = images.GetOrRequest(name, extension, entry.IsDirectory, folderPath, (int)iconSize, wantThumbnail, items.ParsingNameOf(entry));
         if (image != null)
         {
             ImageDrawing.Draw(deviceContext, image, x + _cellWidth / 2, y + padding + iconSize / 2, iconSize, wantThumbnail, RenderResources.OpacityOf(entry));
