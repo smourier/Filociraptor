@@ -131,3 +131,7 @@ Everything comes from NuGet.
 
 <img width="846" height="976" alt="Context menu" src="https://github.com/user-attachments/assets/2ecbb4c6-c756-4864-84f3-4334c626998b" />
 
+### Shell namespace support
+
+<img width="794" height="484" alt="Recycle bin" src="https://github.com/user-attachments/assets/7ce975de-f55b-43ed-a68d-5c97084577c7" />
+
