@@ -1,6 +1,8 @@
 ﻿# Filociraptor
 
-A fast Windows file manager in C#, DirectX, Direct2D and NativeAOT for x86, x64 and ARM64.
+A fast Windows file manager in 100% pure C#, DirectX, Direct2D and NativeAOT for x86, x64 and ARM64.
+
+The published **standalone** executable is 8 MB (3 MB with UPX) and needs nothing to be installed.
 
 <img width="256" src="Filociraptor.png" />
 
@@ -18,7 +20,7 @@ Measured with the built in benchmark, Release NativeAOT x64, warm file system ca
 | `C:\Windows\System32` | 5064 | 1.9 ms | 1.1 ms | 0.74 ms | 10 MB |
 | `C:\Windows\WinSxS` | 25444 | 20.0 ms | 15.3 ms | 0.80 ms | 17 MB |
 
-A frame costs the same in both, because only the rows on screen are ever drawn. A scan allocates nothing and causes no garbage collection at all. The published executable is 7.2 MB (2.5MB with UPX) and needs nothing to be installed.
+A frame costs the same in both, because only the rows on screen are ever drawn. A scan allocates nothing and causes no garbage collection at all.
 
 ```bash
 filo bench "C:\Windows\WinSxS" 3
