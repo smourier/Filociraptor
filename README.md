@@ -2,7 +2,7 @@
 
 A fast Windows file manager in 100% pure C#, DirectX, Direct2D and NativeAOT for x86, x64 and ARM64.
 
-The published **standalone** executable is 8 MB (3.5 MB with UPX) and needs nothing to be installed.
+The published **standalone** executable is 9 MB (3.5 MB with UPX) and needs nothing to be installed.
 
 <img width="256" src="Filociraptor.png" />
 
