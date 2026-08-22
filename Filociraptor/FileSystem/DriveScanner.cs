@@ -12,10 +12,54 @@ internal static class DriveScanner
             if (cancellationToken.IsCancellationRequested)
                 yield break;
 
-            yield return await Task.Run(() => Describe(root), cancellationToken).ConfigureAwait(true);
+            yield return Name(root);
+        }
+
+        // how much room each one has is the part that costs, and every drive is asked at once and reported the moment it answers.
+        var pending = new List<Task<DriveEntry>>();
+        foreach (var root in roots)
+        {
+            pending.Add(Task.Run(() => Describe(root), cancellationToken));
+        }
+
+        while (pending.Count > 0)
+        {
+            var answered = await Task.WhenAny(pending).ConfigureAwait(true);
+            pending.Remove(answered);
+            if (cancellationToken.IsCancellationRequested)
+                yield break;
+
+            if (answered.IsCompletedSuccessfully)
+            {
+                yield return answered.Result;
+            }
         }
     }
 
+    // the name and the kind of a drive are read from the mapping rather than from the device, so neither spins anything up nor waits for a network.
+    private static DriveEntry Name(string root) => new()
+    {
+        Root = root,
+        Label = string.Empty,
+        Type = TypeOf(root),
+        IsPending = true,
+    };
+
+    private static DriveType TypeOf(string root)
+    {
+        try
+        {
+            return new DriveInfo(root).DriveType;
+        }
+        catch
+        {
+            return DriveType.Unknown;
+        }
+    }
+
+    // the file system is asked, not the shell.
+    // the shell's answer is the better one, it leaves out a letter with no device behind it, which is how a virtual machine's floppy controller turns into an A: that Explorer does not show.
+    // but measured here it costs more
     private static string[] GetRoots()
     {
         try

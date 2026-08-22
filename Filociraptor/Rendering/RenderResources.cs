@@ -16,7 +16,6 @@ internal sealed class RenderResources : IDisposable
     private const float _cellSpacingRatio = 10 / 12.5f;
     private const float _labelHeightRatio = 18 / 12.5f;
     private const string _monoFontFamily = "Consolas";
-    private const string _glyphFontFamily = "Segoe MDL2 Assets";
     private const string _widthSample = @"C:\Windows\System32\drivers\etc 0123456789";
     private const float _glyphSize = 13;
 
@@ -56,7 +55,7 @@ internal sealed class RenderResources : IDisposable
         CenterWrapFormat.Object.SetWordWrapping(DWRITE_WORD_WRAPPING.DWRITE_WORD_WRAPPING_WRAP);
         CenterWrapFormat.Object.SetTextAlignment(DWRITE_TEXT_ALIGNMENT.DWRITE_TEXT_ALIGNMENT_CENTER);
 
-        GlyphFormat = factory.CreateTextFormat(_glyphFontFamily, MathF.Round(_glyphSize * DpiScale));
+        GlyphFormat = factory.CreateTextFormat(Glyphs.Family, MathF.Round(_glyphSize * DpiScale));
         GlyphFormat.Object.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT.DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
         GlyphFormat.Object.SetWordWrapping(DWRITE_WORD_WRAPPING.DWRITE_WORD_WRAPPING_NO_WRAP);
         GlyphFormat.Object.SetTextAlignment(DWRITE_TEXT_ALIGNMENT.DWRITE_TEXT_ALIGNMENT_CENTER);
@@ -85,7 +84,7 @@ internal sealed class RenderResources : IDisposable
         CaptionRightFormat.Object.SetWordWrapping(DWRITE_WORD_WRAPPING.DWRITE_WORD_WRAPPING_NO_WRAP);
         CaptionRightFormat.Object.SetTextAlignment(DWRITE_TEXT_ALIGNMENT.DWRITE_TEXT_ALIGNMENT_TRAILING);
 
-        CaptionGlyphFormat = factory.CreateTextFormat(_glyphFontFamily, MathF.Round(_glyphSize * ChromeScale));
+        CaptionGlyphFormat = factory.CreateTextFormat(Glyphs.Family, MathF.Round(_glyphSize * ChromeScale));
         CaptionGlyphFormat.Object.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT.DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
         CaptionGlyphFormat.Object.SetWordWrapping(DWRITE_WORD_WRAPPING.DWRITE_WORD_WRAPPING_NO_WRAP);
         CaptionGlyphFormat.Object.SetTextAlignment(DWRITE_TEXT_ALIGNMENT.DWRITE_TEXT_ALIGNMENT_CENTER);

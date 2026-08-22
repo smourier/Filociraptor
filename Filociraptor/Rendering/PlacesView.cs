@@ -37,7 +37,24 @@ internal sealed class PlacesView : Control
         _scrollY = 0;
     }
 
-    public void Add(DriveEntry drive) => _drives.Add(drive);
+    public void Add(DriveEntry drive)
+    {
+        var existing = _drives.FindIndex(d => d.Root.EqualsIgnoreCase(drive.Root));
+        if (existing >= 0)
+        {
+            _drives[existing] = drive;
+            return;
+        }
+
+        var index = _drives.FindIndex(d => string.Compare(d.Root, drive.Root, StringComparison.OrdinalIgnoreCase) > 0);
+        if (index < 0)
+        {
+            _drives.Add(drive);
+            return;
+        }
+
+        _drives.Insert(index, drive);
+    }
 
     public void SetPlaces(IReadOnlyList<PlaceEntry> places)
     {
@@ -242,6 +259,11 @@ internal sealed class PlacesView : Control
 
         var titleRect = new D2D_RECT_F { left = left, top = y + padding / 2, right = right, bottom = y + padding / 2 + lineHeight };
         TextDrawing.Draw(deviceContext, text.Text, resources.RowFormat, titleRect, resources.TextBrush);
+
+        // nothing is said about the room on it until it has been asked, because saying "not ready" first and
+        // correcting it a moment later is worse than saying nothing at all.
+        if (drive.IsPending)
+            return;
 
         if (!drive.IsReady || drive.TotalBytes == 0)
         {

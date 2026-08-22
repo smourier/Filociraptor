@@ -6,6 +6,7 @@ internal sealed class DriveEntry
     public required string Label { get; init; }
     public required DriveType Type { get; init; }
     public bool IsReady { get; init; }
+    public bool IsPending { get; init; }
     public long TotalBytes { get; init; }
     public long FreeBytes { get; init; }
 

@@ -17,6 +17,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
     private const float _minListWidth = 260;
     private const float _splitterWidth = 6;
     private const int _hoverPreviewDelay = 300;
+    private const int _hitSysMenu = 3;
 
     private const int _saveQuietMilliseconds = 1000;
     private const double _minFontSize = 8;
@@ -56,6 +57,9 @@ internal sealed class MainWindow : D3D11SwapChainWindow
 
     private IComObject<ID2D1Device>? _d2dDevice;
     private IComObject<ID2D1DeviceContext>? _deviceContext;
+    private IComObject<ID3D11Device>? _device;
+    private IComObject<ID3D11DeviceContext>? _d3dContext;
+    private IComObject<IDXGISwapChain1>? _swapChain;
     private IComObject<ID2D1Bitmap1>? _target;
     private RenderResources? _resources;
     private readonly FolderWatcher _watcher;
@@ -255,6 +259,142 @@ internal sealed class MainWindow : D3D11SwapChainWindow
             icon,
             background: new HBRUSH());
 
+    // DirectN doesn't support Windows 7, but we wan to
+    protected override IComObject<ID3D11Device>? Device => _device;
+    protected override IComObject<ID3D11DeviceContext>? DeviceContext => _d3dContext;
+    protected override IComObject<IDXGISwapChain1>? SwapChain => _swapChain;
+
+    protected override void CreateDeviceResources()
+    {
+        DisposeDeviceResources();
+
+        var flags = DeviceCreateFlags;
+#if DEBUG
+        if (DXGIFunctions.IsDebugLayerAvailable)
+        {
+            flags |= D3D11_CREATE_DEVICE_FLAG.D3D11_CREATE_DEVICE_DEBUG;
+        }
+#endif
+
+        using (var factory = DXGIFunctions.CreateDXGIFactory1())
+        {
+            using var adapter = factory.EnumAdapters1().FirstOrDefault();
+            _device = CreateDevice(adapter, flags, out _d3dContext);
+        }
+
+        if (MultithreadProtected)
+        {
+            using var multithread = _device.As<ID3D11Multithread>();
+            multithread?.Object.SetMultithreadProtected(true);
+        }
+
+        var desc = new DXGI_SWAP_CHAIN_DESC1
+        {
+            Format = DXGI_FORMAT.DXGI_FORMAT_B8G8R8A8_UNORM,
+            BufferUsage = DXGI_USAGE.DXGI_USAGE_RENDER_TARGET_OUTPUT,
+            BufferCount = 2,
+            SampleDesc = new DXGI_SAMPLE_DESC { Count = 1 },
+            SwapEffect = DXGI_SWAP_EFFECT.DXGI_SWAP_EFFECT_FLIP_DISCARD,
+            Scaling = DXGI_SCALING.DXGI_SCALING_STRETCH,
+        };
+
+        using var dxgiDevice = _device!.As<IDXGIDevice>()!;
+        using var deviceAdapter = dxgiDevice.GetAdapter();
+        using var factory2 = deviceAdapter.GetFactory2();
+        if (factory2 != null)
+        {
+            try
+            {
+                _swapChain = factory2.CreateSwapChainForHwnd<IDXGISwapChain1>(_device, Handle, desc);
+            }
+            catch (Exception ex)
+            {
+                Application.TraceWarning($"{desc.SwapEffect} was refused ({ex.Message}), the swap chain copies instead.");
+                // the flip model came with Windows 10
+                desc.SwapEffect = DXGI_SWAP_EFFECT.DXGI_SWAP_EFFECT_DISCARD;
+                _swapChain = factory2.CreateSwapChainForHwnd<IDXGISwapChain1>(_device, Handle, desc);
+            }
+        }
+        else
+        {
+            _swapChain = CreateOlderSwapChain(deviceAdapter, _device, Handle);
+        }
+
+        CreateSwapChainDependentResources(_device, _swapChain);
+        CreateDeviceDependentResources(_device, _swapChain);
+    }
+
+    // three tries, in this order, and each one is proved by creating the device rather than by asking whether it ought to work.
+    private static IComObject<ID3D11Device> CreateDevice(IComObject<IDXGIAdapter1>? adapter, D3D11_CREATE_DEVICE_FLAG flags, out IComObject<ID3D11DeviceContext> context)
+    {
+        var plain = flags & ~D3D11_CREATE_DEVICE_FLAG.D3D11_CREATE_DEVICE_DEBUG;
+        if (plain != flags)
+        {
+            try
+            {
+                return Create(adapter, flags, out context);
+            }
+            catch (Exception ex)
+            {
+                Application.TraceWarning($"the debug layer was refused ({ex.Message}), the device is created without it.");
+            }
+        }
+
+        try
+        {
+            return Create(adapter, plain, out context);
+        }
+        catch (Exception ex)
+        {
+            Application.TraceWarning($"the display adapter gave no device ({ex.Message}), the software rasterizer draws instead.");
+            return D3D11Functions.D3D11CreateDevice(null!, D3D_DRIVER_TYPE.D3D_DRIVER_TYPE_WARP, plain, out context);
+        }
+
+        static IComObject<ID3D11Device> Create(IComObject<IDXGIAdapter1>? adapter, D3D11_CREATE_DEVICE_FLAG flags, out IComObject<ID3D11DeviceContext> context) => adapter != null
+            ? D3D11Functions.D3D11CreateDevice(adapter.Object, D3D_DRIVER_TYPE.D3D_DRIVER_TYPE_UNKNOWN, flags, out context)
+            : D3D11Functions.D3D11CreateDevice(null!, D3D_DRIVER_TYPE.D3D_DRIVER_TYPE_HARDWARE, flags, out context);
+    }
+
+    // there is no IDXGIFactory2 before Windows 8
+    private static IComObject<IDXGISwapChain1> CreateOlderSwapChain(IComObject<IDXGIAdapter> adapter, IComObject<ID3D11Device> device, HWND hwnd)
+    {
+        using var factory = adapter.GetFactory();
+        var desc = new DXGI_SWAP_CHAIN_DESC
+        {
+            BufferDesc = new DXGI_MODE_DESC { Format = DXGI_FORMAT.DXGI_FORMAT_B8G8R8A8_UNORM },
+            SampleDesc = new DXGI_SAMPLE_DESC { Count = 1 },
+            BufferUsage = DXGI_USAGE.DXGI_USAGE_RENDER_TARGET_OUTPUT,
+            BufferCount = 2,
+            OutputWindow = hwnd,
+            Windowed = true,
+            SwapEffect = DXGI_SWAP_EFFECT.DXGI_SWAP_EFFECT_DISCARD,
+        };
+
+        return factory.CreateSwapChain<IDXGISwapChain1>(device.Object, desc);
+    }
+
+    protected override void DisposeDeviceResources()
+    {
+        base.DisposeDeviceResources();
+
+        var context = Interlocked.Exchange(ref _d3dContext, null);
+        if (context != null)
+        {
+            context.ClearState();
+            context.Flush();
+            context.Dispose();
+        }
+
+        var swapChain = Interlocked.Exchange(ref _swapChain, null);
+        if (swapChain != null)
+        {
+            swapChain.SetFullscreenState(false);
+            swapChain.Dispose();
+        }
+
+        Interlocked.Exchange(ref _device, null)?.Dispose();
+    }
+
     private void EnsureDeviceResources(IComObject<ID3D11Device> device)
     {
         if (_deviceContext != null)
@@ -423,11 +563,29 @@ internal sealed class MainWindow : D3D11SwapChainWindow
 
     private static int FrameThickness => Functions.GetSystemMetrics(SYSTEM_METRICS_INDEX.SM_CXFRAME) + Functions.GetSystemMetrics(SYSTEM_METRICS_INDEX.SM_CXPADDEDBORDER);
 
+    private static bool IsCaptionArea(int hit) => hit == TitleBar.HitCaption || hit == TitleBar.HitMinimize || hit == TitleBar.HitMaximize || hit == TitleBar.HitClose || hit == _hitSysMenu;
+
+    private static bool IsCompositionEnabled
+    {
+        get
+        {
+            try
+            {
+                return Functions.DwmIsCompositionEnabled(out var enabled).IsSuccess && enabled;
+            }
+            catch
+            {
+                // no desktop window manager at all, which is older still.
+                return false;
+            }
+        }
+    }
+
     // the borders left as non client answer for themselves, only the top edge and the caption are ours.
     private LRESULT HitTest(HWND hwnd, WPARAM wParam, LPARAM lParam)
     {
         var result = DefWindowProc(hwnd, MessageDecoder.WM_NCHITTEST, wParam, lParam);
-        if (result.Value != TitleBar.HitClient)
+        if (result.Value != TitleBar.HitClient && !IsCaptionArea((int)result.Value))
             return result;
 
         var point = new POINT { x = (short)(lParam.Value & 0xFFFF), y = (short)((lParam.Value >> 16) & 0xFFFF) };
@@ -976,8 +1134,8 @@ internal sealed class MainWindow : D3D11SwapChainWindow
                         rect.right -= FrameThickness;
                         rect.bottom -= FrameThickness;
 
-                        // a maximised window would otherwise put its top edge past the screen.
-                        if (Functions.IsZoomed(hwnd))
+                        // the top edge is kept for the caption we draw ourselves, which works because the frame is composited and the system draws nothing there.
+                        if (Functions.IsZoomed(hwnd) || !IsCompositionEnabled)
                         {
                             rect.top += FrameThickness;
                         }
@@ -1608,7 +1766,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         },
     ];
 
-    private IReadOnlyList<MenuEntry> FontEntries()
+    private List<MenuEntry> FontEntries()
     {
         var names = new List<string>();
         try

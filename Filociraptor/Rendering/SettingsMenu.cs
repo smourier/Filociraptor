@@ -18,8 +18,6 @@ internal sealed class SettingsMenu : Control
     private const float _shadow = 1;
     private const float _wheelRows = 3;
 
-    private const char _checkGlyph = (char)0xE73E;
-    private const char _submenuGlyph = (char)0xE76C;
 
     private IReadOnlyList<MenuEntry> _entries = [];
     private IReadOnlyList<MenuEntry> _children = [];
@@ -433,7 +431,7 @@ internal sealed class SettingsMenu : Control
                 case MenuEntryKind.Toggle:
                     if (entry.Checked?.Invoke() == true)
                     {
-                        Span<char> check = [_checkGlyph];
+                        Span<char> check = [Glyphs.Check];
                         TextDrawing.Draw(deviceContext, check, resources.GlyphFormat, EndOf(row), resources.GoodBrush);
                     }
                     break;
@@ -448,7 +446,7 @@ internal sealed class SettingsMenu : Control
                         TextDrawing.Draw(deviceContext, value, resources.CaptionRightFormat, valueRect, resources.DimTextBrush);
                     }
 
-                    Span<char> arrow = [_submenuGlyph];
+                    Span<char> arrow = [Glyphs.Submenu];
                     TextDrawing.Draw(deviceContext, arrow, resources.GlyphFormat, EndOf(row), resources.DimTextBrush);
                     break;
 

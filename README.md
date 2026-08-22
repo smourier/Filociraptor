@@ -2,7 +2,7 @@
 
 A fast Windows file manager in 100% pure C#, DirectX, Direct2D and NativeAOT for x86, x64 and ARM64.
 
-The published **standalone** executable is 9 MB (3.5 MB with UPX) and needs nothing to be installed.
+The published **standalone** executable is 9.5 MB (2.8 MB with UPX) and needs nothing to be installed.
 
 <img width="256" src="Filociraptor.png" />
 
@@ -79,6 +79,26 @@ Everything is measured in device independent units and turned into pixels once, 
 * no address bar, no typing or pasting a path, and no search.
 * no tabs and no favourites.
 * no accessibility. Everything is custom drawn, so a screen reader sees an empty window.
+
+## Where it runs
+
+Windows 7 SP1 and later, on x86, x64 and ARM64.
+
+.NET has not supported Windows 7 since version 8, and this is built with 10, so running there is not something anyone promises.
+It does though, and the reason is that a NativeAOT binary carries its own runtime and asks the system for very little.
+What Windows 7 does need is the Universal CRT, which comes with KB2999226, and the Platform Update, KB2670838, for the Direct2D and DXGI versions the drawing uses.
+
+Where something is missing, it is asked for once and given up on rather than assumed:
+
+* the icons are Segoe MDL2 Assets, which came with Windows 10. Without it they are drawn from Segoe UI Symbol, which has shipped since Windows 7.
+* the flip presentation model is Windows 10 and later. Without it the swap chain is the older kind that copies, made the older way, since there is no IDXGIFactory2 before Windows 8 either.
+* per monitor scaling is Windows 8.1 and later. Without it the window follows the system setting, which is what Windows 7 has.
+* archives are shown as folders the way Windows 11 does it. On Windows 10 and earlier that option is there and greyed.
+
+**It also runs where there is no 3D adapter at all.** A display adapter with no Direct3D behind it is enough to stop most DirectX programs before they draw anything,
+and depending on the host, the guest and what is shared between them, a virtual machine or a sandbox can present exactly that.
+The device is asked of the display adapter first and of the rasterizer that comes with Windows secondly, so where there is nothing to draw with, it draws in software,
+and says so in its trace rather than being quietly slow. It has been run in Hyper-V (Windows 7+) and in Windows Sandbox.
 
 ## Where it could go
 
@@ -201,6 +221,12 @@ Windows 11 presents an archive as a folder and so does this. The pictures inside
 This PC, with the drives and whatever else is plugged in. A phone, a camera, a media server. There is no path to read for any of it, so the shell answers instead.
 
 ![The namespace](docs/this-pc.png)
+
+### Windows 7
+
+The same thing on Windows 7, in a Hyper-V machine with no 3D adapter at all, drawn by the software rasterizer (WARP).
+
+![Windows 7](docs/windows-7.png)
 
 ### The real Explorer context menu
 

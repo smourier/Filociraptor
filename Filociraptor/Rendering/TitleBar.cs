@@ -28,14 +28,6 @@ internal sealed class TitleBar : Control
     private const float _sliderWidth = 118;
     private const float _radius = 4;
 
-    // Segoe MDL2 Assets, which is present on both Windows 10 and Windows 11.
-    private const char _backGlyph = (char)0xE112;
-    private const char _forwardGlyph = (char)0xE111;
-    private const char _upGlyph = (char)0xE110;
-    private const char _revealGlyph = (char)0xE838;
-    private const char _hiddenGlyph = (char)0xE7B3;
-    private const char _settingsGlyph = (char)0xE713;
-
     private readonly ViewSlider _slider = new();
 
     // one per button, in the order they are drawn, so each fades on its own rather than the row flashing together.
@@ -230,11 +222,11 @@ internal sealed class TitleBar : Control
         deviceContext.FillRectangle(Bounds, resources.HeaderBackgroundBrush);
 
         var navigationWidth = _navigationWidth * _scale;
-        DrawNavigation(deviceContext, resources, NavigationButton.Back, _backGlyph, Bounds.left);
-        DrawNavigation(deviceContext, resources, NavigationButton.Forward, _forwardGlyph, Bounds.left + navigationWidth);
-        DrawNavigation(deviceContext, resources, NavigationButton.Up, _upGlyph, Bounds.left + navigationWidth * 2);
-        DrawNavigation(deviceContext, resources, NavigationButton.Reveal, _revealGlyph, Bounds.left + navigationWidth * 3);
-        DrawNavigation(deviceContext, resources, NavigationButton.Hidden, _hiddenGlyph, Bounds.left + navigationWidth * 4);
+        DrawNavigation(deviceContext, resources, NavigationButton.Back, Glyphs.Back, Bounds.left);
+        DrawNavigation(deviceContext, resources, NavigationButton.Forward, Glyphs.Forward, Bounds.left + navigationWidth);
+        DrawNavigation(deviceContext, resources, NavigationButton.Up, Glyphs.Up, Bounds.left + navigationWidth * 2);
+        DrawNavigation(deviceContext, resources, NavigationButton.Reveal, Glyphs.Reveal, Bounds.left + navigationWidth * 3);
+        DrawNavigation(deviceContext, resources, NavigationButton.Hidden, Glyphs.Hidden, Bounds.left + navigationWidth * 4);
 
         var width = _buttonWidth * _scale;
         var zoomWidth = _zoomWidth * _scale;
@@ -349,7 +341,7 @@ internal sealed class TitleBar : Control
 
         resources.FillHover(deviceContext, rect, _gearHover.Opacity, _radius * _scale);
 
-        Span<char> buffer = [_settingsGlyph];
+        Span<char> buffer = [Glyphs.Settings];
         TextDrawing.Draw(deviceContext, buffer, resources.CaptionGlyphFormat, rect, resources.TextBrush);
     }
 
