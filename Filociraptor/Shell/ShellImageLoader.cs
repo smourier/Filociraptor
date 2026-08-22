@@ -4,12 +4,10 @@ using ShellN.Extensions;
 namespace Filociraptor.Shell;
 
 // every shell call in the application happens here, never on the UI thread.
-// a thumbnail handler is third party code that can block for a long time on a network path or a placeholder file,
-// so the number of calls in flight is capped and the UI never waits on any of them.
+// a thumbnail handler is third party code that can block for a long time on a network path or a placeholder file, so the number of calls in flight is capped and the UI never waits on any of them.
 internal sealed class ShellImageLoader : IDisposable
 {
     private const int _minWorkers = 2;
-    // how many times a request is retried when the shell answers with nothing.
     private const int _maxAttempts = 3;
 
     private const int _maxWorkers = 4;
@@ -123,14 +121,36 @@ internal sealed class ShellImageLoader : IDisposable
     {
         ShellImageKind.ExtensionIcon => LoadExtensionIconAsync(request),
         ShellImageKind.Image => Task.FromResult(DecodeImage(request)),
+        ShellImageKind.StreamImage => Task.FromResult(DecodeStreamImage(request)),
         _ => LoadShellImageAsync(request),
     };
 
-    // WIC reads the file itself, so the preview is the real picture at the size asked for rather than whatever
-    // thumbnail the shell happens to hold. it is slow enough to matter, which is why it happens here.
+    // WIC reads the file itself, so the preview is the real picture at the size asked for rather than whatever thumbnail the shell happens to hold.
+    // it is slow enough to matter, which is why it happens here.
     private static ShellImage? DecodeImage(in ShellImageRequest request)
     {
         using var decoder = WicImagingFactory.CreateDecoderFromFilename(request.Target);
+        return FirstFrameOf(request, decoder);
+    }
+
+    // there is no file to open inside an archive, so the shell is asked for the bytes instead and WIC reads those.
+    // the shell has an icon for such an item and it is the same blank page for all of them, so the picture has to be made here or there is no picture at all.
+    private static ShellImage? DecodeStreamImage(in ShellImageRequest request)
+    {
+        using var item = ShellItems.Parse(request.Target, false);
+        if (item == null)
+            return null;
+
+        using var stream = item.BindToHandler<DirectN.IStream>(ShellN.Constants.BHID_Stream);
+        if (stream == null)
+            return null;
+
+        using var decoder = WicImagingFactory.CreateDecoderFromStream(stream.Object);
+        return FirstFrameOf(request, decoder);
+    }
+
+    private static ShellImage? FirstFrameOf(in ShellImageRequest request, IComObject<IWICBitmapDecoder> decoder)
+    {
         if (decoder.GetFrameCount() == 0)
             return null;
 
@@ -175,7 +195,6 @@ internal sealed class ShellImageLoader : IDisposable
         }
 
         // some types register their icon as the file itself, so there is nothing to extract from a file that does not exist.
-        // one real example resolves it, and the result is still kept once for the whole extension.
         if (request.SamplePath == null)
             return null;
 
@@ -227,7 +246,7 @@ internal sealed class ShellImageLoader : IDisposable
         var size = new SIZE(request.Size, request.Size);
 
         // the asynchronous form is the one that copes with E_PENDING, which is what the shell returns while it is still building the image.
-        // the synchronous one simply reports no image and the thumbnail never appears.
+        // the synchronous one simply reports no image and the thumbnail may never appear.
         using var bitmap = await item.GetImageAsBitmapAsync(size, flags, WICBitmapAlphaChannelOption.WICBitmapUsePremultipliedAlpha).ConfigureAwait(false);
         if (bitmap != null)
         {

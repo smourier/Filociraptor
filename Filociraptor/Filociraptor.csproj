@@ -24,10 +24,10 @@
 		<Description>A fast Windows file manager in C#, Direct2D and NativeAOT.</Description>
 		<Copyright>Copyright (C) 2024-$([System.DateTime]::UtcNow.ToString("yyyy")) Simon Mourier. All rights reserved.</Copyright>
 
-		<ProductVersion>1.1.0</ProductVersion>
-		<Version>1.1.0</Version>
-		<FileVersion>1.1.0</FileVersion>
-		<InformationalVersion>1.1.0</InformationalVersion>
+		<ProductVersion>1.2.0</ProductVersion>
+		<Version>1.2.0</Version>
+		<FileVersion>1.2.0</FileVersion>
+		<InformationalVersion>1.2.0</InformationalVersion>
 		<SourceRevisionId>$([System.DateTime]::UtcNow.ToString("yyyyMMddHHmmss"))</SourceRevisionId>
 	</PropertyGroup>
 
@@ -60,6 +60,7 @@
 		<Using Include="DirectN.Extensions" />
 		<Using Include="DirectN.Extensions.Com" />
 		<Using Include="DirectN.Extensions.Utilities" />
+		<Using Include="Filociraptor.Configuration" />
 		<Using Include="Filociraptor.Diagnostics" />
 		<Using Include="Filociraptor.FileSystem" />
 		<Using Include="Filociraptor.Rendering" />
@@ -73,6 +74,8 @@
 		<Using Include="System.Runtime.InteropServices" />
 		<Using Include="System.Runtime.InteropServices.Marshalling" />
 		<Using Include="System.Text" />
+		<Using Include="System.Text.Json" />
+		<Using Include="System.Text.Json.Serialization" />
 		<Using Include="System.Threading.Channels" />
 	</ItemGroup>
 

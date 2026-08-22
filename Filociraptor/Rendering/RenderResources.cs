@@ -1,43 +1,67 @@
 ﻿namespace Filociraptor.Rendering;
 
 // device dependent objects, created once per device and reused for every frame.
-// creating a brush or a text format inside the render loop is a COM call per item, which is exactly what a
-// listing of this size cannot afford.
+// creating a brush or a text format inside the render loop is a COM call per item, which is exactly what a listing of this size cannot afford.
 internal sealed class RenderResources : IDisposable
 {
-    private const string _uiFontFamily = "Segoe UI";
+    private const string _defaultUiFontFamily = "Segoe UI";
+
+    private readonly Dictionary<string, IComObject<IDWriteTextFormat>?> _previewFormats = new(StringComparer.OrdinalIgnoreCase);
+    private readonly IComObject<IDWriteFactory> _factory;
+    private readonly float _baseSize;
+
+    // the row and header heights the layout was drawn against, as multiples of the base font size, so the default size gives exactly the 22 and 26 pixels it always did.
+    private const float _rowHeightRatio = 22 / 12.5f;
+    private const float _headerHeightRatio = 26 / 12.5f;
+    private const float _cellSpacingRatio = 10 / 12.5f;
+    private const float _labelHeightRatio = 18 / 12.5f;
     private const string _monoFontFamily = "Consolas";
     private const string _glyphFontFamily = "Segoe MDL2 Assets";
     private const string _widthSample = @"C:\Windows\System32\drivers\etc 0123456789";
+    private const float _glyphSize = 13;
 
-    public RenderResources(IComObject<ID2D1DeviceContext> deviceContext, float dpiScale, float zoom)
+    public RenderResources(IComObject<ID2D1DeviceContext> deviceContext, float dpiScale, float zoom, Settings settings)
     {
         DpiScale = dpiScale * zoom;
         Zoom = zoom;
-        RowHeight = MathF.Round(22 * DpiScale);
-        HeaderHeight = MathF.Round(26 * DpiScale);
 
-        using var factory = DWriteFunctions.DWriteCreateFactory();
-        RowFormat = factory.CreateTextFormat(_uiFontFamily, MathF.Round(12.5f * DpiScale));
+        var uiFontFamily = string.IsNullOrWhiteSpace(settings.FontFamily) ? _defaultUiFontFamily : settings.FontFamily;
+        var baseSize = (float)settings.FontSize;
+
+        RowHeight = MathF.Round(baseSize * _rowHeightRatio * DpiScale);
+        HeaderHeight = MathF.Round(baseSize * _headerHeightRatio * DpiScale);
+
+        CellSpacing = MathF.Round(baseSize * _cellSpacingRatio * DpiScale);
+        LabelHeight = MathF.Round(baseSize * _labelHeightRatio * DpiScale);
+
+        _baseSize = baseSize;
+        _factory = DWriteFunctions.DWriteCreateFactory();
+        var factory = _factory;
+        RowFormat = factory.CreateTextFormat(uiFontFamily, MathF.Round(baseSize * DpiScale));
         RowFormat.Object.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT.DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
         RowFormat.Object.SetWordWrapping(DWRITE_WORD_WRAPPING.DWRITE_WORD_WRAPPING_NO_WRAP);
 
-        RightFormat = factory.CreateTextFormat(_uiFontFamily, MathF.Round(12.5f * DpiScale));
+        RightFormat = factory.CreateTextFormat(uiFontFamily, MathF.Round(baseSize * DpiScale));
         RightFormat.Object.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT.DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
         RightFormat.Object.SetWordWrapping(DWRITE_WORD_WRAPPING.DWRITE_WORD_WRAPPING_NO_WRAP);
         RightFormat.Object.SetTextAlignment(DWRITE_TEXT_ALIGNMENT.DWRITE_TEXT_ALIGNMENT_TRAILING);
 
-        CenterFormat = factory.CreateTextFormat(_uiFontFamily, MathF.Round(12 * DpiScale));
+        CenterFormat = factory.CreateTextFormat(uiFontFamily, MathF.Round((baseSize - 0.5f) * DpiScale));
         CenterFormat.Object.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT.DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
         CenterFormat.Object.SetWordWrapping(DWRITE_WORD_WRAPPING.DWRITE_WORD_WRAPPING_NO_WRAP);
         CenterFormat.Object.SetTextAlignment(DWRITE_TEXT_ALIGNMENT.DWRITE_TEXT_ALIGNMENT_CENTER);
 
-        GlyphFormat = factory.CreateTextFormat(_glyphFontFamily, MathF.Round(13 * DpiScale));
+        CenterWrapFormat = factory.CreateTextFormat(uiFontFamily, MathF.Round((baseSize - 0.5f) * DpiScale));
+        CenterWrapFormat.Object.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT.DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+        CenterWrapFormat.Object.SetWordWrapping(DWRITE_WORD_WRAPPING.DWRITE_WORD_WRAPPING_WRAP);
+        CenterWrapFormat.Object.SetTextAlignment(DWRITE_TEXT_ALIGNMENT.DWRITE_TEXT_ALIGNMENT_CENTER);
+
+        GlyphFormat = factory.CreateTextFormat(_glyphFontFamily, MathF.Round(_glyphSize * DpiScale));
         GlyphFormat.Object.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT.DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
         GlyphFormat.Object.SetWordWrapping(DWRITE_WORD_WRAPPING.DWRITE_WORD_WRAPPING_NO_WRAP);
         GlyphFormat.Object.SetTextAlignment(DWRITE_TEXT_ALIGNMENT.DWRITE_TEXT_ALIGNMENT_CENTER);
 
-        HeaderFormat = factory.CreateTextFormat(_uiFontFamily, MathF.Round(12 * DpiScale), weight: DWRITE_FONT_WEIGHT.DWRITE_FONT_WEIGHT_SEMI_BOLD);
+        HeaderFormat = factory.CreateTextFormat(uiFontFamily, MathF.Round((baseSize - 0.5f) * DpiScale), weight: DWRITE_FONT_WEIGHT.DWRITE_FONT_WEIGHT_SEMI_BOLD);
         HeaderFormat.Object.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT.DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
         HeaderFormat.Object.SetWordWrapping(DWRITE_WORD_WRAPPING.DWRITE_WORD_WRAPPING_NO_WRAP);
 
@@ -45,9 +69,34 @@ internal sealed class RenderResources : IDisposable
         OverlayFormat.Object.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT.DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
         OverlayFormat.Object.SetWordWrapping(DWRITE_WORD_WRAPPING.DWRITE_WORD_WRAPPING_NO_WRAP);
 
+        // the caption is chrome, not content. it follows the monitor and not the zoom, the way an ordinary window title bar does, so it needs its own formats at the plain dpi scale.
+        ChromeScale = dpiScale;
+        CaptionFormat = factory.CreateTextFormat(uiFontFamily, MathF.Round(baseSize * ChromeScale));
+        CaptionFormat.Object.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT.DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        CaptionFormat.Object.SetWordWrapping(DWRITE_WORD_WRAPPING.DWRITE_WORD_WRAPPING_NO_WRAP);
+
+        CaptionCenterFormat = factory.CreateTextFormat(uiFontFamily, MathF.Round(baseSize * ChromeScale));
+        CaptionCenterFormat.Object.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT.DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        CaptionCenterFormat.Object.SetWordWrapping(DWRITE_WORD_WRAPPING.DWRITE_WORD_WRAPPING_NO_WRAP);
+        CaptionCenterFormat.Object.SetTextAlignment(DWRITE_TEXT_ALIGNMENT.DWRITE_TEXT_ALIGNMENT_CENTER);
+
+        CaptionRightFormat = factory.CreateTextFormat(uiFontFamily, MathF.Round(baseSize * ChromeScale));
+        CaptionRightFormat.Object.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT.DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        CaptionRightFormat.Object.SetWordWrapping(DWRITE_WORD_WRAPPING.DWRITE_WORD_WRAPPING_NO_WRAP);
+        CaptionRightFormat.Object.SetTextAlignment(DWRITE_TEXT_ALIGNMENT.DWRITE_TEXT_ALIGNMENT_TRAILING);
+
+        CaptionGlyphFormat = factory.CreateTextFormat(_glyphFontFamily, MathF.Round(_glyphSize * ChromeScale));
+        CaptionGlyphFormat.Object.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT.DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        CaptionGlyphFormat.Object.SetWordWrapping(DWRITE_WORD_WRAPPING.DWRITE_WORD_WRAPPING_NO_WRAP);
+        CaptionGlyphFormat.Object.SetTextAlignment(DWRITE_TEXT_ALIGNMENT.DWRITE_TEXT_ALIGNMENT_CENTER);
+
         using var sample = factory.CreateTextLayout(RowFormat, _widthSample);
         sample.Object.GetMetrics(out var metrics);
         AverageCharacterWidth = MathF.Max(1, metrics.width / _widthSample.Length);
+
+        using var captionSample = factory.CreateTextLayout(CaptionFormat, _widthSample);
+        captionSample.Object.GetMetrics(out var captionMetrics);
+        CaptionCharacterWidth = MathF.Max(1, captionMetrics.width / _widthSample.Length);
 
         PaneBackgroundBrush = deviceContext.CreateSolidColorBrush(Theme.PaneBackground);
         SplitterBrush = deviceContext.CreateSolidColorBrush(Theme.Splitter);
@@ -57,7 +106,7 @@ internal sealed class RenderResources : IDisposable
         BarFillLowBrush = deviceContext.CreateSolidColorBrush(Theme.BarFillLow);
         HeaderBackgroundBrush = deviceContext.CreateSolidColorBrush(Theme.HeaderBackground);
         HeaderTextBrush = deviceContext.CreateSolidColorBrush(Theme.HeaderText);
-        TextBrush = deviceContext.CreateSolidColorBrush(Theme.Text);
+        TextBrush = deviceContext.CreateSolidColorBrush(settings.Text);
         DimTextBrush = deviceContext.CreateSolidColorBrush(Theme.DimText);
         FolderTextBrush = deviceContext.CreateSolidColorBrush(Theme.FolderText);
         HiddenTextBrush = deviceContext.CreateSolidColorBrush(Theme.HiddenText);
@@ -75,7 +124,6 @@ internal sealed class RenderResources : IDisposable
     }
 
     // how long the last frame took, which is what every hover fade advances by.
-    // it lives here because every Render already receives these resources, and it is the only per frame state among them.
     public float ElapsedSeconds { get; set; }
 
     // set by anything still animating, and the window draws another frame while it is set.
@@ -100,16 +148,49 @@ internal sealed class RenderResources : IDisposable
         HoverBrush.Object.SetOpacity(1);
     }
 
+    // a text format per font family, built only for the families actually drawn, which for a menu is the dozen rows on screen rather than the several hundred installed.
+    public IComObject<IDWriteTextFormat> PreviewFormat(string family)
+    {
+        if (_previewFormats.TryGetValue(family, out var cached))
+            return cached ?? CaptionFormat;
+
+        IComObject<IDWriteTextFormat>? format = null;
+        try
+        {
+            format = _factory.CreateTextFormat(family, MathF.Round(_baseSize * ChromeScale));
+            format.Object.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT.DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+            format.Object.SetWordWrapping(DWRITE_WORD_WRAPPING.DWRITE_WORD_WRAPPING_NO_WRAP);
+        }
+        catch (Exception ex)
+        {
+            Application.TraceVerbose($"no preview for '{family}': {ex.Message}");
+        }
+
+        _previewFormats[family] = format;
+        return format ?? CaptionFormat;
+    }
+
     // includes the zoom factor, so everything sized from it scales together.
     public float DpiScale { get; }
     public float Zoom { get; }
     public float AverageCharacterWidth { get; }
+
+    // the scale of the window's own caption, which the zoom does not touch.
+    public float ChromeScale { get; }
+    public float CaptionCharacterWidth { get; }
     public float RowHeight { get; }
     public float HeaderHeight { get; }
+    public float CellSpacing { get; }
+    public float LabelHeight { get; }
 
     public IComObject<IDWriteTextFormat> RowFormat { get; }
     public IComObject<IDWriteTextFormat> RightFormat { get; }
     public IComObject<IDWriteTextFormat> CenterFormat { get; }
+    public IComObject<IDWriteTextFormat> CenterWrapFormat { get; }
+    public IComObject<IDWriteTextFormat> CaptionFormat { get; }
+    public IComObject<IDWriteTextFormat> CaptionCenterFormat { get; }
+    public IComObject<IDWriteTextFormat> CaptionRightFormat { get; }
+    public IComObject<IDWriteTextFormat> CaptionGlyphFormat { get; }
     public IComObject<IDWriteTextFormat> GlyphFormat { get; }
     public IComObject<IDWriteTextFormat> HeaderFormat { get; }
     public IComObject<IDWriteTextFormat> OverlayFormat { get; }
@@ -157,9 +238,21 @@ internal sealed class RenderResources : IDisposable
 
     public void Dispose()
     {
+        foreach (var format in _previewFormats.Values)
+        {
+            format?.Dispose();
+        }
+
+        _previewFormats.Clear();
+        _factory.Dispose();
         RowFormat.Dispose();
         RightFormat.Dispose();
         CenterFormat.Dispose();
+        CenterWrapFormat.Dispose();
+        CaptionFormat.Dispose();
+        CaptionCenterFormat.Dispose();
+        CaptionRightFormat.Dispose();
+        CaptionGlyphFormat.Dispose();
         GlyphFormat.Dispose();
         HeaderFormat.Dispose();
         OverlayFormat.Dispose();

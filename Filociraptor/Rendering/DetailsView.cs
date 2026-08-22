@@ -2,7 +2,7 @@
 
 // a details listing that only ever touches the rows currently on screen.
 // cost per frame is bounded by the height of the window, not by the number of files in the folder.
-internal sealed class DetailsView : IItemsView
+internal sealed class DetailsView : Control, IItemsView
 {
     private const float _padding = 8;
     private const float _scrollbarWidth = Scrollbar.Width;
@@ -25,7 +25,6 @@ internal sealed class DetailsView : IItemsView
 
     public FolderItems? Items { get; set; }
     public int SelectedPosition { get; private set; } = -1;
-    public D2D_RECT_F Bounds { get; set; }
     public float RowHeight { get; private set; } = 22;
     public Action<int>? ItemActivated { get; set; }
     public Action<SortColumn>? SortRequested { get; set; }
@@ -43,9 +42,48 @@ internal sealed class DetailsView : IItemsView
 
     public void ScrollBy(float pixels) => SetScroll(_scrollY + pixels);
     public void ScrollByRows(float rows) => SetScroll(_scrollY + rows * RowHeight);
-    public void ScrollByWheel(int wheelDelta) => SetScroll(_scrollY - wheelDelta / 120f * _rowsPerWheelNotch * RowHeight);
+    private void ScrollByWheel(int wheelDelta) => SetScroll(_scrollY - wheelDelta / 120f * _rowsPerWheelNotch * RowHeight);
 
     private void SetScroll(float value) => _scrollY = Math.Clamp(value, 0, MaxScroll);
+
+    public override bool IsCapturing => _scrollbar.Dragging;
+
+    public override bool OnMouseMove(float x, float y)
+    {
+        if (_scrollbar.Dragging)
+        {
+            DragScrollbar(y);
+            return true;
+        }
+
+        return SetHover(x, y);
+    }
+
+    public override bool OnMouseDown(float x, float y, bool doubleClick)
+    {
+        if (BeginScrollbarDrag(x, y))
+            return true;
+
+        return OnClick(x, y, doubleClick);
+    }
+
+    public override bool OnMouseUp()
+    {
+        if (!_scrollbar.Dragging)
+            return false;
+
+        EndScrollbarDrag();
+        return true;
+    }
+
+    public override bool OnWheel(float x, float y, int delta)
+    {
+        if (!Contains(x, y))
+            return false;
+
+        ScrollByWheel(delta);
+        return true;
+    }
 
     public void Reset()
     {
@@ -56,10 +94,11 @@ internal sealed class DetailsView : IItemsView
 
     public void ClampScroll() => SetScroll(_scrollY);
 
-    public bool SetHover(float x, float y)
+    private bool InHeader(float x, float y) => y >= Bounds.top && y < ListTop && x >= Bounds.left && x < Bounds.right - _scrollbarWidth;
+
+    private bool SetHover(float x, float y)
     {
-        var inHeader = y >= Bounds.top && y < ListTop && x >= Bounds.left && x < Bounds.right - _scrollbarWidth;
-        var column = inHeader ? (int)ColumnAt(x) : -1;
+        var column = InHeader(x, y) ? (int)ColumnAt(x) : -1;
         var position = PositionAt(x, y);
         if (position == _hoverPosition && column == _hoverColumn)
             return false;
@@ -117,7 +156,7 @@ internal sealed class DetailsView : IItemsView
         }
     }
 
-    public bool BeginScrollbarDrag(float x, float y)
+    private bool BeginScrollbarDrag(float x, float y)
     {
         if (!_scrollbar.BeginDrag(x, y))
             return false;
@@ -126,12 +165,12 @@ internal sealed class DetailsView : IItemsView
         return true;
     }
 
-    public void DragScrollbar(float y) => SetScroll(_scrollbar.ScrollFor(y));
-    public void EndScrollbarDrag() => _scrollbar.EndDrag();
+    private void DragScrollbar(float y) => SetScroll(_scrollbar.ScrollFor(y));
+    private void EndScrollbarDrag() => _scrollbar.EndDrag();
 
-    public bool OnClick(float x, float y, bool doubleClick)
+    private bool OnClick(float x, float y, bool doubleClick)
     {
-        if (y < ListTop && y >= Bounds.top)
+        if (InHeader(x, y))
         {
             OnHeaderClick(x);
             return true;
@@ -176,7 +215,7 @@ internal sealed class DetailsView : IItemsView
         return SortColumn.Name;
     }
 
-    public void Render(IComObject<ID2D1DeviceContext> deviceContext, RenderResources resources, ImageCache images, string folderPath)
+    public void Render(IComObject<ID2D1DeviceContext> deviceContext, RenderResources resources, ImageCache images, string folderPath, bool streamItems)
     {
         RowHeight = resources.RowHeight;
         HeaderHeight = resources.HeaderHeight;
@@ -190,7 +229,7 @@ internal sealed class DetailsView : IItemsView
         var padding = _padding * scale;
 
         RenderHeader(deviceContext, resources, modifiedLeft, typeLeft, sizeLeft, right, padding);
-        RenderRows(deviceContext, resources, images, folderPath, modifiedLeft, typeLeft, sizeLeft, right, padding);
+        RenderRows(deviceContext, resources, images, folderPath, streamItems, modifiedLeft, typeLeft, sizeLeft, right, padding);
         _scrollbar.Update(Bounds, ListTop, _scrollY, MaxScroll, scale);
         _scrollbar.Draw(deviceContext, resources);
     }
@@ -274,6 +313,7 @@ internal sealed class DetailsView : IItemsView
         RenderResources resources,
         ImageCache images,
         string folderPath,
+        bool streamItems,
         float modifiedLeft,
         float typeLeft,
         float sizeLeft,
@@ -317,7 +357,7 @@ internal sealed class DetailsView : IItemsView
             var name = items.NameOf(entry);
             var extension = items.ExtensionOf(entry);
             var iconSize = _iconSize * resources.DpiScale;
-            var icon = images.GetOrRequest(name, extension, isDirectory, folderPath, (int)iconSize, false, items.ParsingNameOf(entry));
+            var icon = images.GetOrRequest(name, extension, isDirectory, folderPath, (int)iconSize, false, items.ParsingNameOf(entry), isStream: streamItems);
             if (icon != null)
             {
                 ImageDrawing.Draw(deviceContext, icon, Bounds.left + padding + iconSize / 2, y + RowHeight / 2, iconSize, false, RenderResources.OpacityOf(entry));

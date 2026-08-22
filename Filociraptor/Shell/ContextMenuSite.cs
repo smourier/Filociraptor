@@ -13,7 +13,7 @@ internal sealed partial class ContextMenuSite(HWND owner) :
 {
     private nint _site;
 
-    public string? NavigateToParsingName { get; private set; }
+    public string? NavigateToParsingName { get; set; }
 
     public HRESULT QueryService(in Guid guidService, in Guid riid, out nint ppvObject)
     {

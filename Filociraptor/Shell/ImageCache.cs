@@ -1,7 +1,7 @@
 ﻿namespace Filociraptor.Shell;
 
-// the UI thread side of the image pipeline. it decides what to ask for, holds the results as device bitmaps,
-// and never blocks. lookups happen for every visible row on every frame, so they go through an alternate span lookup and allocate nothing on a hit.
+// the UI thread side of the image pipeline. it decides what to ask for, holds the results as device bitmaps, and never blocks.
+// lookups happen for every visible row on every frame, so they go through an alternate span lookup and allocate nothing on a hit.
 internal sealed class ImageCache : IDisposable
 {
     public const string DirectoryKey = "<dir>";
@@ -9,7 +9,6 @@ internal sealed class ImageCache : IDisposable
     private const int _maxUploadsPerFrame = 24;
     private const int _maxKeyLength = 560;
     private const int _bytesPerPixel = 4;
-    private const float _bitmapDpi = 96;
 
     // the sizes the system keeps icons at.
     private static readonly int[] _standardSizes = [16, 20, 24, 32, 48, 64, 96, 128, 256, 384, 512, 768, 1024, 1536, 2048];
@@ -77,14 +76,17 @@ internal sealed class ImageCache : IDisposable
         int size,
         bool wantThumbnail,
         ReadOnlySpan<char> parsingName = default,
-        bool keep = false)
+        bool keep = false,
+        bool isStream = false)
     {
         size = StandardSize(size);
         Span<char> buffer = stackalloc char[_maxKeyLength];
         var key = new ScratchText(buffer);
 
         // a namespace item has nothing an extension could be shared on, so it is always asked for by itself.
-        var shared = parsingName.Length == 0 && CanShare(isDirectory, wantThumbnail, extension);
+        // inside an archive the shell offers the same blank page for everything, so the extension provides the icon the way it does for a file on disk, and only a picture we can decode ourselves is asked for by item.
+        var streamThumbnail = isStream && wantThumbnail && !isDirectory && ImageExtensions.CanDecode(extension);
+        var shared = isStream ? !streamThumbnail : parsingName.Length == 0 && CanShare(isDirectory, wantThumbnail, extension);
         if (shared)
         {
             AppendSharedKey(ref key, extension, isDirectory, size);
@@ -116,12 +118,14 @@ internal sealed class ImageCache : IDisposable
         {
             // the loader turns this into a name for a file that does not exist, which is all the shell needs.
             var target = isDirectory || extension.Length == 0 ? string.Empty : extension.ToString();
-            var sample = isDirectory ? null : Path.Join(folderPath, name);
+
+            // the sample is a real file of that extension, for the types that register their icon as the file itself. inside an archive there is no path to one, but the parsing name reaches it.
+            var sample = isDirectory ? null : isStream ? parsingName.ToString() : Path.Join(folderPath, name);
             Request(key.Text, target, ShellImageKind.ExtensionIcon, size, isDirectory, sample);
         }
         else
         {
-            var kind = wantThumbnail ? ShellImageKind.Thumbnail : ShellImageKind.FileIcon;
+            var kind = streamThumbnail ? ShellImageKind.StreamImage : wantThumbnail ? ShellImageKind.Thumbnail : ShellImageKind.FileIcon;
             var target = parsingName.Length > 0 ? parsingName.ToString() : Path.Join(folderPath, name);
             Request(key.Text, target, kind, size, isDirectory, keep: keep);
         }
@@ -146,8 +150,7 @@ internal sealed class ImageCache : IDisposable
 
         key.Append(name);
 
-        // a decoded picture is megabytes, not kilobytes like an icon, and only one is ever on screen.
-        // so the previous one goes as soon as a different one is wanted.
+        // a decoded picture is megabytes, not kilobytes like an icon, and only one is ever on screen. so the previous one goes as soon as a different one is wanted.
         if (_preview != null && !key.Text.SequenceEqual(_preview))
         {
             if (_bitmaps.Remove(_preview, out var previous))
@@ -242,8 +245,8 @@ internal sealed class ImageCache : IDisposable
                     format = DXGI_FORMAT.DXGI_FORMAT_B8G8R8A8_UNORM,
                     alphaMode = D2D1_ALPHA_MODE.D2D1_ALPHA_MODE_PREMULTIPLIED,
                 },
-                dpiX = _bitmapDpi,
-                dpiY = _bitmapDpi,
+                dpiX = Constants.USER_DEFAULT_SCREEN_DPI,
+                dpiY = Constants.USER_DEFAULT_SCREEN_DPI,
             };
 
             fixed (byte* pixels = image.Pixels)

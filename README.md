@@ -2,7 +2,7 @@
 
 A fast Windows file manager in 100% pure C#, DirectX, Direct2D and NativeAOT for x86, x64 and ARM64.
 
-The published **standalone** executable is 8 MB (3 MB with UPX) and needs nothing to be installed.
+The published **standalone** executable is 8 MB (3.5 MB with UPX) and needs nothing to be installed.
 
 <img width="256" src="Filociraptor.png" />
 
@@ -13,12 +13,13 @@ What is here, though, is not a mock up. It browses, sorts, previews and opens re
 
 ## Numbers
 
-Measured with the built in benchmark, Release NativeAOT x64, warm file system cache.
+Measured with the built in benchmark, Release NativeAOT x64, warm file system cache, best of three runs.
+The frame is read from the performance overlay in a 1904 by 1272 window, while scrolling continuously.
 
 | Folder | Items | Enumerate | Sort by name | Frame | Working set |
 | --- | --- | --- | --- | --- | --- |
-| `C:\Windows\System32` | 5064 | 1.9 ms | 1.1 ms | 0.74 ms | 10 MB |
-| `C:\Windows\WinSxS` | 25444 | 20.0 ms | 15.3 ms | 0.80 ms | 17 MB |
+| `C:\Windows\System32` | 5064 | 1.8 ms | 1.3 ms | 2.1 ms | 13 MB |
+| `C:\Windows\WinSxS` | 25444 | 23.0 ms | 15.5 ms | 2.0 ms | 21 MB |
 
 A frame costs the same in both, because only the rows on screen are ever drawn. A scan allocates nothing and causes no garbage collection at all.
 
@@ -35,31 +36,48 @@ filo bench "C:\Windows\WinSxS" 3
 * names are ordered exactly as Explorer orders them, punctuation before letters and runs of digits compared as numbers, which costs more than a plain sort and is worth it.
 * the namespace costs several times what reading a folder costs, an object and a handful of calls for every item, so it is used only where there is nothing on disk to read. This PC, a phone, the recycle bin. Those hold a few items, never thousands, so it never shows.
 * the window draws only when something changed, and while something is fading it draws in step with the monitor rather than as fast as it can.
+* the title bar and the menus are sized by the monitor alone, the way any ordinary window behaves, and only the listing takes the zoom on top of that.
+Everything is measured in device independent units and turned into pixels once, so moving to a screen at 150 per cent redraws rather than rescales, and stays sharp.
 
 ## What it does
+
+### Browsing
 
 * browses drives and folders, with back, forward and up, and the left pane always current.
 * browses the shell namespace as well, This PC, the recycle bin, a phone or a camera plugged in, the network, the libraries and your own folders. A folder on disk still takes the fast path above, the namespace is used only where there is no path to read.
 * the left pane lists the drives, with their space used, and under them the same places Explorer shows at the top of its tree.
+* browses an archive as a folder, the way Windows 11 does, with the proper icon for every file in it and real thumbnails for the pictures, decoded from the archive itself. An option turns that off and opens an archive with its application instead. On Windows 10 the option is there and greyed, because Windows 10 does not present archives that way.
 * supports all unicode characters in names.
 * notices drives arriving and leaving, including mapped network drives, and moves off a drive that is pulled out.
 * follows the folder on screen, so a file created or deleted by anything else appears or disappears on its own. Namespace folders are watched too, so emptying the recycle bin shows up straight away.
+
+### Looking at it
+
 * details, small, medium and large icons, and thumbnails, with real shell icons and thumbnails.
 * shows or hides hidden and protected operating system files, faded rather than merely listed.
 * a large view of any image WIC can decode, on hover.
+* global zoom, sortable columns, keyboard navigation, and its own title bar, with the buttons, the column headers and the rows lighting up under the pointer.
+* follows the monitor it is on. It is per monitor v2 aware, so the text, the icons and the title bar are drawn at the scaling of the screen the window is on, and they change with it when the window is dragged to a screen with different scaling, or when that scaling is changed under it. The zoom is a separate thing that multiplies the listing on top of that.
+
+### Opening things
+
 * the real Explorer context menu, with installed handlers appearing in it (ie: where "Share" works), on an item, and on the empty space around them the same menu for the folder you are in.
 * opens a folder from that menu in place rather than handing it to Explorer, and "open in new process" starts another one of these instead, beside the window it came from.
 * opens files with their default command, and reveals anything in Explorer.
 * takes the folder to open on the command line, `filo "C:\Windows"`, and shell names as well, so `filo "shell:Downloads"` works.
-* global zoom, sortable columns, keyboard navigation, and its own title bar, with the buttons, the column headers and the rows lighting up under the pointer.
+
+### What it remembers
+
+* remembers what you change. The gear in the title bar opens a menu for the font and its size, the colour of the text, the space around thumbnails, whether they are square, their titles and the wrapping of them, the size of the hover preview, and the folders you have been to, with a sweep for the ones that are no longer there.
+* comes back where it was. The same monitor, the same size and position, the same zoom, maximized if it was, and on the folder it was last showing. The settings are one readable file, beside the executable when there is one there, which is what makes a copied folder portable, and in your profile otherwise.
 
 ## What it does not do
 
-* **no file operations at all.** No copy, move, rename, delete or new folder, and no drag and drop. The context menu can do some of it because that menu is Explorer's, not ours.
+* no file operations at all by itself. The context menu can do some of it because that menu is Explorer's, not ours.
+* no drag & drop.
 * no multiple selection, one item at a time.
 * no address bar, no typing or pasting a path, and no search.
-* the namespace is for browsing only. You can walk into This PC, a phone or the recycle bin and look, but nothing comes back out, because there are no file operations.
-* no tabs, no favourites, no settings, and nothing is remembered between runs.
+* no tabs and no favourites.
 * no accessibility. Everything is custom drawn, so a screen reader sees an empty window.
 
 ## Where it could go
@@ -90,6 +108,9 @@ The drives and the places you can go on the left, the listing on the right, and 
 | start on a particular folder | `filo "C:\Windows"`, or a shell name like `filo "shell:Downloads"` |
 | details, small, medium and large icons, thumbnails | the slider, or `Ctrl` with `1` to `5` |
 | zoom text, icons and thumbnails together | `Ctrl` with the wheel |
+| the settings, and the folders you have been to | the gear in the title bar |
+| pick a zoom, or reset it | click the percentage in the title bar |
+| open an archive as a folder, or as a file | it is a folder by default, the settings turn it into a file |
 | rescan now | `F5` |
 | show the performance overlay | `F12` |
 
@@ -103,35 +124,93 @@ Everything comes from NuGet.
 
 ## Screenshots
 
-### Icon view
+### A large folder, in details
 
-<img width="1260" height="764" alt="Icon view" src="https://github.com/user-attachments/assets/a83f21ed-4d9d-4cfb-8a57-e4756c82573b" />
+25 444 items in `C:\Windows\WinSxS`, read straight from the file system and ordered the way Explorer orders names. Only the rows on screen are ever drawn, so the size of the folder does not change what a frame costs.
 
-### Zoomed out icon view
+![A large folder, in details](docs/details-winsxs.png)
 
-<img width="1821" height="1225" alt="Zoomed out view" src="https://github.com/user-attachments/assets/4480ed20-85e0-40d2-a8f0-fd584c58fd53" />
+### What it costs, while it costs it
 
-### Thumbnail view (on fonts)
+`F12` puts the counters on screen. The scan, the time to the first rows, the sort, the cost of a frame and everything allocated. Reading twenty five thousand items causes no garbage collection at all.
 
-<img width="1921" height="1074" alt="Fonts thumbnails" src="https://github.com/user-attachments/assets/2ef7ead2-6213-43e1-b21f-9315e2baf3fc" />
+![What it costs, while it costs it](docs/overlay-winsxs.png)
 
-### Zoomed out Thumbnail view
+### Thumbnails
 
-<img width="1820" height="1226" alt="Thumbnail view" src="https://github.com/user-attachments/assets/b8127177-62f6-473c-a0ff-dcc2db5ba93d" />
+The shell's own thumbnails, asked for only where they are on screen, and drawn as they arrive rather than after the folder is complete.
 
-### Hover view
+![Thumbnails](docs/thumbnails-photos.jpg)
 
-<img width="1821" height="1222" alt="Hover view" src="https://github.com/user-attachments/assets/e97e1983-fb4b-4858-99f2-a4a003d49643" />
+### A closer look, on hover
 
-### Diags / Performance overlay
+Hovering a picture decodes it with WIC at the size it is shown, rather than blowing up a thumbnail the shell had kept. Anything WIC can read works. `Esc` or moving away puts it back.
 
-<img width="1818" height="1226" alt="Overlay" src="https://github.com/user-attachments/assets/7c773b50-c4ff-4be5-a47a-12d269b9a749" />
+![A closer look, on hover](docs/preview-photos.jpg)
 
-### Full Explorer context menu
+### Fonts, each in its own face
 
-<img width="846" height="976" alt="Context menu" src="https://github.com/user-attachments/assets/2ecbb4c6-c756-4864-84f3-4334c626998b" />
+`C:\Windows\Fonts`, where the thumbnail of a font is the font itself.
 
-### Shell namespace support
+![Fonts, each in its own face](docs/thumbnails-fonts.png)
 
-<img width="794" height="484" alt="Recycle bin" src="https://github.com/user-attachments/assets/7ce975de-f55b-43ed-a68d-5c97084577c7" />
+### Large icons
+
+The five sizes come off the slider in the title bar, or `Ctrl` with `1` to `5`.
+
+![Large icons](docs/icons-windows.png)
+
+### Zoomed out
+
+The zoom takes the whole listing with it, the thumbnails, the titles and the rows of the left pane together. This is the same folder at half size.
+
+![Zoomed out](docs/zoomed-out-thumbnails.jpg)
+
+### Square thumbnails, close together
+
+Two settings. One crops every thumbnail to a square so the grid lines up whatever shape the pictures are, the other decides how much room is left around them.
+
+![Square thumbnails, close together](docs/square-thumbnails.jpg)
+
+### As much as will fit
+
+Square, no titles, no spacing at all and zoomed out to half. A hundred and forty photographs in one window, each one a real thumbnail.
+
+![As much as will fit](docs/photo-wall.jpg)
+
+### The settings
+
+The gear in the title bar. The font and its size, the colour of the text, the room around thumbnails, the size of the hover preview, what a thumbnail shows, how archives open, and the folders you have been to. All of it is written to one readable file.
+
+![The settings](docs/settings.jpg)
+
+### The zoom
+
+Clicking the percentage offers the usual sizes and ticks the one in use. The wheel with `Ctrl` still works.
+
+![The zoom](docs/zoom.jpg)
+
+### An archive, browsed as a folder
+
+Windows 11 presents an archive as a folder and so does this. The pictures inside it are decoded from the archive itself, because the shell has no thumbnail to offer for something that is not a file on disk.
+
+![An archive, browsed as a folder](docs/archive.jpg)
+
+### The namespace
+
+This PC, with the drives and whatever else is plugged in. A phone, a camera, a media server. There is no path to read for any of it, so the shell answers instead.
+
+![The namespace](docs/this-pc.png)
+
+### The real Explorer context menu
+
+Not an imitation of it. Everything installed on the machine appears in it and works, which is where "Share", "7-Zip" and the rest come from.
+
+![The real Explorer context menu](docs/context-menu.png)
+
+### The same in the recycle bin
+
+A namespace folder with a menu of its own, so what it offers is what the recycle bin offers.
+
+![The same in the recycle bin](docs/context-menu-recycle-bin.png)
 

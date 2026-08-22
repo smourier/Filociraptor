@@ -187,6 +187,159 @@ namespace Filociraptor {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Clear the list.
+        /// </summary>
+        internal static string SettingClearRecentFolders {
+            get {
+                return ResourceManager.GetString("SettingClearRecentFolders", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Font.
+        /// </summary>
+        internal static string SettingFont {
+            get {
+                return ResourceManager.GetString("SettingFont", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Font size.
+        /// </summary>
+        internal static string SettingFontSize {
+            get {
+                return ResourceManager.GetString("SettingFontSize", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Image preview.
+        /// </summary>
+        internal static string SettingImagePreview {
+            get {
+                return ResourceManager.GetString("SettingImagePreview", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Nothing yet.
+        /// </summary>
+        internal static string SettingNoRecentFolders {
+            get {
+                return ResourceManager.GetString("SettingNoRecentFolders", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to off.
+        /// </summary>
+        internal static string SettingOff {
+            get {
+                return ResourceManager.GetString("SettingOff", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Open archives as files.
+        /// </summary>
+        internal static string SettingOpenArchivesAsFiles {
+            get {
+                return ResourceManager.GetString("SettingOpenArchivesAsFiles", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to beside the program.
+        /// </summary>
+        internal static string SettingPortable {
+            get {
+                return ResourceManager.GetString("SettingPortable", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Recent folders.
+        /// </summary>
+        internal static string SettingRecentFolders {
+            get {
+                return ResourceManager.GetString("SettingRecentFolders", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Remove the ones that are gone.
+        /// </summary>
+        internal static string SettingRemoveMissingFolders {
+            get {
+                return ResourceManager.GetString("SettingRemoveMissingFolders", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to in your profile.
+        /// </summary>
+        internal static string SettingRoaming {
+            get {
+                return ResourceManager.GetString("SettingRoaming", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Settings file.
+        /// </summary>
+        internal static string SettingSettingsFile {
+            get {
+                return ResourceManager.GetString("SettingSettingsFile", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Square thumbnails.
+        /// </summary>
+        internal static string SettingSquareThumbnails {
+            get {
+                return ResourceManager.GetString("SettingSquareThumbnails", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Text colour.
+        /// </summary>
+        internal static string SettingTextColor {
+            get {
+                return ResourceManager.GetString("SettingTextColor", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Thumbnail spacing.
+        /// </summary>
+        internal static string SettingThumbnailSpacing {
+            get {
+                return ResourceManager.GetString("SettingThumbnailSpacing", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Thumbnail titles.
+        /// </summary>
+        internal static string SettingThumbnailTitles {
+            get {
+                return ResourceManager.GetString("SettingThumbnailTitles", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Wrap thumbnail titles.
+        /// </summary>
+        internal static string SettingWrapThumbnailTitles {
+            get {
+                return ResourceManager.GetString("SettingWrapThumbnailTitles", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to  B.
         /// </summary>
         internal static string UnitByte {

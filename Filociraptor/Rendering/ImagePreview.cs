@@ -4,10 +4,14 @@
 // it uses the same loader as the thumbnails, so it costs one more cached image and nothing at all on the UI thread.
 internal sealed class ImagePreview
 {
-    // the preview takes this much of the window, so it is the same size whatever the picture is.
-    private const float _windowFraction = 0.75f;
+    private const float _percent = 100;
     private const float _padding = 8;
     private const float _radius = 8;
+
+    // the share of the window a preview takes, and whether there is one at all.
+    public Settings? Settings { get; set; }
+    public bool IsEnabled => Fraction > 0;
+    private float Fraction => (float)((Settings?.PreviewPercent ?? _percent) / _percent);
 
     public int Position { get; private set; } = -1;
     public bool Visible => Position >= 0;
@@ -30,13 +34,14 @@ internal sealed class ImagePreview
         string folderPath,
         in D2D_RECT_F client)
     {
-        if (!Visible || Position >= items.Count)
+        if (!Visible || !IsEnabled || Position >= items.Count)
             return;
 
         ref readonly var entry = ref items.EntryAt(Position);
         var padding = MathF.Round(_padding * resources.DpiScale);
-        var boxWidth = (client.right - client.left) * _windowFraction - padding * 2;
-        var boxHeight = (client.bottom - client.top) * _windowFraction - padding * 2;
+        var fraction = Fraction;
+        var boxWidth = (client.right - client.left) * fraction - padding * 2;
+        var boxHeight = (client.bottom - client.top) * fraction - padding * 2;
         if (boxWidth <= 0 || boxHeight <= 0)
             return;
 

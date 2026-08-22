@@ -1,7 +1,7 @@
 ﻿namespace Filociraptor.Rendering;
 
 // the left pane, drives first and then the places the shell offers, which is what Explorer lists in its tree.
-internal sealed class PlacesView
+internal sealed class PlacesView : Control
 {
     private const float _padding = 10;
     private const float _driveHeight = 54;
@@ -16,19 +16,14 @@ internal sealed class PlacesView
     private readonly List<DriveEntry> _drives = [];
     private readonly List<PlaceEntry> _places = [];
 
-    private HoverAnimation _hover;
-    private HoverAnimation _fading;
-    private int _hoverIndex = -1;
-    private int _fadingIndex = -1;
+    private RowHover _hover = new();
     private float _scrollY;
 
     public int SelectedIndex { get; private set; } = -1;
-    public D2D_RECT_F Bounds { get; set; }
     public Action<DriveEntry>? DriveActivated { get; set; }
     public Action<PlaceEntry>? PlaceActivated { get; set; }
     public IReadOnlyList<DriveEntry> Drives => _drives;
 
-    private float Scale { get; set; } = 1;
     private float ListTop => Bounds.top;
     private float ListHeight => MathF.Max(0, Bounds.bottom - ListTop);
     private float SeparatorGap => _places.Count > 0 && _drives.Count > 0 ? _separatorGap * Scale : 0;
@@ -50,8 +45,14 @@ internal sealed class PlacesView
         _places.AddRange(places);
     }
 
-    public void ScrollByWheel(int wheelDelta) =>
-        _scrollY = Math.Clamp(_scrollY - wheelDelta / 120f * _wheelRows * _driveHeight * Scale, 0, MaxScroll);
+    public override bool OnWheel(float x, float y, int delta)
+    {
+        if (!Contains(x, y))
+            return false;
+
+        _scrollY = Math.Clamp(_scrollY - delta / 120f * _wheelRows * _driveHeight * Scale, 0, MaxScroll);
+        return true;
+    }
 
     // marks whichever row the current location belongs to, so the pane follows navigation done from the listing.
     public void SyncTo(ShellLocation location)
@@ -81,18 +82,7 @@ internal sealed class PlacesView
         SelectedIndex = -1;
     }
 
-    public bool SetHover(float x, float y)
-    {
-        var index = IndexAt(x, y);
-        if (index == _hoverIndex)
-            return false;
-
-        _fadingIndex = _hoverIndex;
-        _fading = _hover;
-        _hoverIndex = index;
-        _hover = default;
-        return true;
-    }
+    public override bool OnMouseMove(float x, float y) => _hover.MoveTo(IndexAt(x, y));
 
     private int RowCount => _drives.Count + _places.Count;
     private float HeightOf(int index) => (index < _drives.Count ? _driveHeight : _placeHeight) * Scale;
@@ -117,7 +107,7 @@ internal sealed class PlacesView
         return -1;
     }
 
-    public bool OnClick(float x, float y)
+    public override bool OnMouseDown(float x, float y, bool doubleClick)
     {
         var index = IndexAt(x, y);
         if (index < 0)
@@ -144,12 +134,7 @@ internal sealed class PlacesView
         deviceContext.FillRectangle(Bounds, resources.PaneBackgroundBrush);
         deviceContext.PushAxisAlignedClip(Bounds, D2D1_ANTIALIAS_MODE.D2D1_ANTIALIAS_MODE_ALIASED);
 
-        if (_hover.Advance(_hoverIndex >= 0, resources.ElapsedSeconds))
-        {
-            resources.Animating = true;
-        }
-
-        if (_fading.Advance(false, resources.ElapsedSeconds))
+        if (_hover.Advance(resources.ElapsedSeconds))
         {
             resources.Animating = true;
         }
@@ -193,8 +178,7 @@ internal sealed class PlacesView
             return;
         }
 
-        var opacity = index == _hoverIndex ? _hover.Opacity : index == _fadingIndex ? _fading.Opacity : 0;
-        resources.FillHover(deviceContext, row, opacity);
+        resources.FillHover(deviceContext, row, _hover.OpacityOf(index));
     }
 
     private void RenderPlace(

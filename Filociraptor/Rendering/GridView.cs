@@ -1,16 +1,18 @@
 ﻿namespace Filociraptor.Rendering;
 
 // the icon and thumbnail modes. same rule as the details view, only the cells on screen cost anything, and only they ever ask the shell for an image.
-internal sealed class GridView : IItemsView
+internal sealed class GridView : Control, IItemsView
 {
-    private const float _cellPadding = 10;
-    private const float _labelHeight = 18;
+    private const double _defaultSpacingPercent = 100;
     private const float _minCellWidth = 88;
     private const float _cellsPerWheelNotch = 1;
     private const float _selectionRadius = 4;
 
     // past this size a cell is big enough to be worth a real thumbnail, which is where Explorer switches too.
     private const float _thumbnailThreshold = 40;
+
+    // how many lines a wrapped title is given, which is what its cell is made tall enough for.
+    private const float _wrappedTitleLines = 2;
 
     private readonly Scrollbar _scrollbar = new();
     private float _scrollY;
@@ -21,7 +23,9 @@ internal sealed class GridView : IItemsView
     private float _cellHeight = 1;
 
     public FolderItems? Items { get; set; }
-    public D2D_RECT_F Bounds { get; set; }
+
+    // what the user asked for, read every frame so a change shows without anything being rebuilt.
+    public Settings? Settings { get; set; }
     public Action<int>? ItemActivated { get; set; }
     public int SelectedPosition { get; private set; } = -1;
     public ViewMode Mode { get; set; } = ViewMode.MediumIcons;
@@ -46,6 +50,45 @@ internal sealed class GridView : IItemsView
         _ => 16,
     };
 
+    public override bool IsCapturing => _scrollbar.Dragging;
+
+    public override bool OnMouseMove(float x, float y)
+    {
+        if (_scrollbar.Dragging)
+        {
+            DragScrollbar(y);
+            return true;
+        }
+
+        return SetHover(x, y);
+    }
+
+    public override bool OnMouseDown(float x, float y, bool doubleClick)
+    {
+        if (BeginScrollbarDrag(x, y))
+            return true;
+
+        return OnClick(x, y, doubleClick);
+    }
+
+    public override bool OnMouseUp()
+    {
+        if (!_scrollbar.Dragging)
+            return false;
+
+        EndScrollbarDrag();
+        return true;
+    }
+
+    public override bool OnWheel(float x, float y, int delta)
+    {
+        if (!Contains(x, y))
+            return false;
+
+        ScrollByWheel(delta);
+        return true;
+    }
+
     public void Reset()
     {
         _scrollY = 0;
@@ -53,10 +96,10 @@ internal sealed class GridView : IItemsView
         _hoverPosition = -1;
     }
 
-    public void ScrollByWheel(int wheelDelta) =>
+    private void ScrollByWheel(int wheelDelta) =>
         _scrollY = Math.Clamp(_scrollY - wheelDelta / 120f * _cellsPerWheelNotch * _cellHeight, 0, MaxScroll);
 
-    public bool SetHover(float x, float y)
+    private bool SetHover(float x, float y)
     {
         var position = PositionAt(x, y);
         if (position == _hoverPosition)
@@ -83,7 +126,7 @@ internal sealed class GridView : IItemsView
         return position < items.Count ? position : -1;
     }
 
-    public bool BeginScrollbarDrag(float x, float y)
+    private bool BeginScrollbarDrag(float x, float y)
     {
         if (!_scrollbar.BeginDrag(x, y))
             return false;
@@ -92,10 +135,10 @@ internal sealed class GridView : IItemsView
         return true;
     }
 
-    public void DragScrollbar(float y) => _scrollY = _scrollbar.ScrollFor(y);
-    public void EndScrollbarDrag() => _scrollbar.EndDrag();
+    private void DragScrollbar(float y) => _scrollY = _scrollbar.ScrollFor(y);
+    private void EndScrollbarDrag() => _scrollbar.EndDrag();
 
-    public bool OnClick(float x, float y, bool doubleClick)
+    private bool OnClick(float x, float y, bool doubleClick)
     {
         var position = PositionAt(x, y);
         if (position < 0)
@@ -139,15 +182,22 @@ internal sealed class GridView : IItemsView
         }
     }
 
-    public void Render(IComObject<ID2D1DeviceContext> deviceContext, RenderResources resources, ImageCache images, string folderPath)
+    public void Render(IComObject<ID2D1DeviceContext> deviceContext, RenderResources resources, ImageCache images, string folderPath, bool streamItems)
     {
         _scale = resources.DpiScale;
         var iconSize = IconSizeOf(Mode) * _scale;
-        var padding = _cellPadding * _scale;
-        var labelHeight = _labelHeight * _scale;
+
+        // what the font asks for, taken as much or as little of as the user wants.
+        var spacing = (Settings?.CellSpacingPercent ?? _defaultSpacingPercent) / _defaultSpacingPercent;
+        var padding = MathF.Max(1, (float)(resources.CellSpacing * spacing));
+
+        // a title can be off, one line, or two when it is allowed to wrap. the cell is measured from whichever it
+        // is, so turning titles off gives the space back rather than leaving a gap where they were.
+        var titleLines = Settings?.ThumbnailTitles == false ? 0 : Settings?.WrapThumbnailTitles == true ? _wrappedTitleLines : 1;
+        var labelHeight = resources.LabelHeight * titleLines;
 
         _cellWidth = MathF.Max(_minCellWidth * _scale, iconSize + padding * 3);
-        _cellHeight = iconSize + labelHeight + padding * 3;
+        _cellHeight = iconSize + labelHeight + padding * (titleLines > 0 ? 3 : 2);
 
         var available = Bounds.right - Bounds.left - Scrollbar.Width * _scale;
         _columns = Math.Max(1, (int)(available / _cellWidth));
@@ -174,7 +224,7 @@ internal sealed class GridView : IItemsView
                     break;
 
                 var x = Bounds.left + column * _cellWidth;
-                RenderCell(deviceContext, resources, images, folderPath, items, position, x, y, iconSize, padding, labelHeight, wantThumbnail);
+                RenderCell(deviceContext, resources, images, folderPath, items, position, x, y, iconSize, padding, labelHeight, wantThumbnail, streamItems);
             }
         }
 
@@ -195,7 +245,8 @@ internal sealed class GridView : IItemsView
         float iconSize,
         float padding,
         float labelHeight,
-        bool wantThumbnail)
+        bool wantThumbnail,
+        bool streamItems)
     {
         var cell = new D2D_RECT_F { left = x, top = y, right = x + _cellWidth, bottom = y + _cellHeight };
         if (position == SelectedPosition || position == _hoverPosition)
@@ -216,11 +267,24 @@ internal sealed class GridView : IItemsView
         ref readonly var entry = ref items.EntryAt(position);
         var name = items.NameOf(entry);
         var extension = items.ExtensionOf(entry);
-        var image = images.GetOrRequest(name, extension, entry.IsDirectory, folderPath, (int)iconSize, wantThumbnail, items.ParsingNameOf(entry));
+        var image = images.GetOrRequest(name, extension, entry.IsDirectory, folderPath, (int)iconSize, wantThumbnail, items.ParsingNameOf(entry), isStream: streamItems);
         if (image != null)
         {
-            ImageDrawing.Draw(deviceContext, image, x + _cellWidth / 2, y + padding + iconSize / 2, iconSize, wantThumbnail, RenderResources.OpacityOf(entry));
+            var opacity = RenderResources.OpacityOf(entry);
+
+            // only a real thumbnail is squared off. an icon is already square and cropping one would eat its edges.
+            if (wantThumbnail && Settings?.SquareThumbnails == true && !entry.IsDirectory)
+            {
+                ImageDrawing.DrawSquare(deviceContext, image, x + _cellWidth / 2, y + padding + iconSize / 2, iconSize, opacity);
+            }
+            else
+            {
+                ImageDrawing.Draw(deviceContext, image, x + _cellWidth / 2, y + padding + iconSize / 2, iconSize, wantThumbnail, opacity);
+            }
         }
+
+        if (labelHeight <= 0)
+            return;
 
         var labelRect = new D2D_RECT_F
         {
@@ -231,6 +295,7 @@ internal sealed class GridView : IItemsView
         };
 
         var brushForName = resources.NameBrush(entry, position == SelectedPosition);
-        TextDrawing.Draw(deviceContext, name, resources.CenterFormat, labelRect, brushForName);
+        var format = Settings?.WrapThumbnailTitles == true ? resources.CenterWrapFormat : resources.CenterFormat;
+        TextDrawing.Draw(deviceContext, name, format, labelRect, brushForName);
     }
 }

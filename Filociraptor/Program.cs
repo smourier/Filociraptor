@@ -20,23 +20,33 @@ internal static class Program
             return;
         }
 
-        // the first argument is a parsing name
-        RunWindow(first ?? _defaultPath, commandLine.GetNullifiedArgument(_positionArgument));
+        // the first argument is a parsing name, and nothing asked for means where it was left last time.
+        var settings = SettingsFile.Load();
+        var path = first ?? settings.RecentFolders.FirstOrDefault()?.ParsingName ?? _defaultPath;
+        RunWindow(settings, path, commandLine.GetNullifiedArgument(_positionArgument));
     }
 
-    private static void RunWindow(string path, string? position)
+    private static void RunWindow(Settings settings, string path, string? position)
     {
         using var app = new Application();
 
         // makes every await in the navigation pipeline come back on the UI thread through the message queue.
         WindowSynchronizationContext.Install();
 
-        using var window = new MainWindow();
-        if (!TryPlaceNextTo(window, position))
+        using var window = new MainWindow(settings);
+        window.IsPlacing = true;
+        try
         {
-            var monitor = window.GetMonitor(MONITOR_FROM_FLAGS.MONITOR_DEFAULTTONEAREST)!;
-            window.ResizeClient(monitor.WorkingArea.Width * 3 / 4, monitor.WorkingArea.Height * 3 / 4);
-            window.Center();
+            if (!TryPlaceNextTo(window, position) && !TryRestore(window, settings))
+            {
+                var monitor = window.GetMonitor(MONITOR_FROM_FLAGS.MONITOR_DEFAULTTONEAREST)!;
+                window.ResizeClient(monitor.WorkingArea.Width * 3 / 4, monitor.WorkingArea.Height * 3 / 4);
+                window.Center();
+            }
+        }
+        finally
+        {
+            window.IsPlacing = false;
         }
 
         window.Show();
@@ -46,7 +56,7 @@ internal static class Program
         app.Run();
     }
 
-    // another instance was started by one of our windows, and it says where it was, so this one opens beside it rather than exactly on top of it, the way a cascade does.
+    private static bool TryRestore(MainWindow window, Settings settings) => WindowPosition.TryParse(settings.Window, out var saved) && saved.Restore(window);
     private static bool TryPlaceNextTo(MainWindow window, string? position)
     {
         if (!RECT.TryParse(position, null, out var origin) || origin.Width <= 0 || origin.Height <= 0)

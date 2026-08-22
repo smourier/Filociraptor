@@ -9,7 +9,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
 
     // a frame longer than this is treated as this long, the window having been idle rather than slow.
     private const float _maxFrameSeconds = 1f / 30;
-    private const float _defaultDpi = 96;
     private const int _wheelDeltaShift = 16;
     private const int _hitTestClient = 1;
     private const int _sizeWECursorId = 32644;
@@ -18,19 +17,31 @@ internal sealed class MainWindow : D3D11SwapChainWindow
     private const float _minListWidth = 260;
     private const float _splitterWidth = 6;
     private const int _hoverPreviewDelay = 300;
+
+    private const int _saveQuietMilliseconds = 1000;
+    private const double _minFontSize = 8;
+    private const double _maxFontSize = 22;
+    private const int _customColorCount = 16;
+    private const double _maxPreviewPercent = 100;
+    private const double _maxSpacingPercent = 400;
+
+    private static readonly int[] _zoomStops = [50, 75, 100, 125, 150, 200, 300, 400];
     private const float _minZoom = 0.5f;
     private const float _maxZoom = 4;
     private const float _zoomStep = 1.1f;
 
+    private readonly Settings _settings;
     private readonly FolderItems _items = new();
     private readonly DetailsView _details = new();
     private readonly GridView _grid = new();
     private readonly PlacesView _places = new();
     private readonly TitleBar _titleBar = new();
+    private readonly SettingsMenu _menu = new();
     private readonly Stack<string> _back = [];
     private readonly Stack<string> _forward = [];
     private readonly ImagePreview _preview = new();
     private readonly Timer _hoverTimer;
+    private readonly Timer _saveTimer;
     private readonly PerfOverlay _overlay = new();
     private readonly PerfCounters _counters = new();
     private readonly HCURSOR _sizeWECursor = Functions.LoadCursorW(HINSTANCE.Null, new PWSTR { Value = _sizeWECursorId });
@@ -65,14 +76,111 @@ internal sealed class MainWindow : D3D11SwapChainWindow
     private long _lastFrame;
     private bool _repaintOwed;
     private bool _imagesReady;
+    private bool _savePending;
+    private int _appearance;
+    private int _builtAppearance = -1;
     private float _restoreScroll;
     private int _restoreSelection = -1;
 
     private IItemsView View => _mode == ViewMode.Details ? _details : _grid;
 
-    public MainWindow()
+    // topmost first, which is the order a message is offered in.
+    private Control[] _controls = [];
+
+    private void RebuildControls() => _controls = [_menu, _titleBar, (Control)View, _places];
+
+    // every change comes through here, and the write happens once the changes stop. set while the window is being put where it belongs, before it is ever shown.
+    internal bool IsPlacing { get; set; }
+
+    // a modal control, the menu while it is up, is over everything and takes every message on its own.
+    private Control? Modal
+    {
+        get
+        {
+            foreach (var control in _controls)
+            {
+                if (control.IsInteractive && control.IsModal)
+                    return control;
+            }
+
+            return null;
+        }
+    }
+
+    // hover is offered to all of them rather than stopping at the first, because a control clears its own hover when the pointer is no longer on it, and stopping early would leave the one behind lit.
+    private bool RouteMouseMove(float x, float y)
+    {
+        var modal = Modal;
+        if (modal != null)
+            return modal.OnMouseMove(x, y);
+
+        var changed = false;
+        foreach (var control in _controls)
+        {
+            if (control.IsInteractive)
+            {
+                changed |= control.OnMouseMove(x, y);
+            }
+        }
+
+        return changed;
+    }
+
+    private bool RouteMouseDown(float x, float y, bool doubleClick)
+    {
+        var modal = Modal;
+        if (modal != null)
+            return modal.OnMouseDown(x, y, doubleClick);
+
+        foreach (var control in _controls)
+        {
+            if (control.IsInteractive && control.OnMouseDown(x, y, doubleClick))
+            {
+                if (control.IsCapturing)
+                {
+                    Functions.SetCapture(Handle);
+                }
+
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool RouteWheel(float x, float y, int delta)
+    {
+        var modal = Modal;
+        if (modal != null)
+            return modal.OnWheel(x, y, delta);
+
+        foreach (var control in _controls)
+        {
+            if (control.IsInteractive && control.OnWheel(x, y, delta))
+                return true;
+        }
+
+        return false;
+    }
+
+    private bool RouteMouseUp()
+    {
+        var released = false;
+        foreach (var control in _controls)
+        {
+            released |= control.OnMouseUp();
+        }
+
+        return released;
+    }
+
+    public MainWindow(Settings settings)
         : base(_title, WINDOW_STYLE.WS_OVERLAPPEDWINDOW)
     {
+        _settings = settings;
+        _zoom = Math.Clamp((float)settings.Zoom, _minZoom, _maxZoom);
+        _grid.Settings = settings;
+        _preview.Settings = settings;
         InvalidateOnTick = false;
         _details.ItemActivated = OnItemActivated;
         _details.SortRequested = OnSortRequested;
@@ -80,20 +188,37 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         _places.DriveActivated = drive => Navigate(drive.Root);
         _places.PlaceActivated = OnPlaceActivated;
         _titleBar.NavigationPressed = OnNavigationButton;
+        _titleBar.SettingsPressed = OnSettingsPressed;
+        _titleBar.ZoomPressed = OnZoomPressed;
+        _menu.Changed = OnSettingChanged;
+
+        // whatever the menu put on screen goes away with it, the sample preview above being the one thing it does.
+        _menu.Closed = DismissPreview;
         _titleBar.Slider.ModeChanged = mode => Mode = mode;
         _watcher = new FolderWatcher(OnFolderChanged);
         _namespaceWatcher = new NamespaceWatcher(OnFolderChanged);
         _hoverTimer = new Timer(_ => OnHoverElapsed(), null, Timeout.Infinite, Timeout.Infinite);
+        _saveTimer = new Timer(_ => OnSaveElapsed(), null, Timeout.Infinite, Timeout.Infinite);
         _driveNotifier.Notified += OnDrivesChanged;
+        RebuildControls();
     }
 
-    private float DpiScale => Dpi.width / _defaultDpi;
+    private float DpiScale => (float)Dpi.width / Constants.USER_DEFAULT_SCREEN_DPI;
 
     // scales every drawn thing, text, rows, icons and thumbnails alike.
     public float Zoom
     {
         get => _zoom;
-        set => _zoom = Math.Clamp(value, _minZoom, _maxZoom);
+        set
+        {
+            var zoom = Math.Clamp(value, _minZoom, _maxZoom);
+            if (zoom == _zoom)
+                return;
+
+            _zoom = zoom;
+            _settings.Zoom = zoom;
+            ScheduleSave();
+        }
     }
 
     public ViewMode Mode
@@ -105,6 +230,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
                 return;
 
             _mode = value;
+            RebuildControls();
             _grid.Mode = value;
             _titleBar.Slider.Mode = value;
             View.Items = _items;
@@ -138,13 +264,11 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         _d2dDevice = D2D1Functions.D2D1CreateDevice(dxgiDevice);
         _deviceContext = _d2dDevice.CreateDeviceContext();
 
-        // work in pixels and scale by hand, so hit testing and layout share one coordinate space.
-        _deviceContext.Object.SetDpi(_defaultDpi, _defaultDpi);
+        _deviceContext.Object.SetDpi(Constants.USER_DEFAULT_SCREEN_DPI, Constants.USER_DEFAULT_SCREEN_DPI);
 
-        // the target is opaque, which is what keeps subpixel antialiasing available for a listing that is all text.
         _deviceContext.Object.SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE.D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE);
 
-        _resources = new RenderResources(_deviceContext, DpiScale, _zoom);
+        _resources = new RenderResources(_deviceContext, DpiScale, _zoom, _settings);
         _images ??= new ImageCache(OnImageReady);
     }
 
@@ -184,8 +308,8 @@ internal sealed class MainWindow : D3D11SwapChainWindow
                 format = DXGI_FORMAT.DXGI_FORMAT_B8G8R8A8_UNORM,
                 alphaMode = D2D1_ALPHA_MODE.D2D1_ALPHA_MODE_IGNORE,
             },
-            dpiX = _defaultDpi,
-            dpiY = _defaultDpi,
+            dpiX = Constants.USER_DEFAULT_SCREEN_DPI,
+            dpiY = Constants.USER_DEFAULT_SCREEN_DPI,
         };
 
         _target = deviceContext.CreateBitmapFromDxgiSurface(surface, properties);
@@ -208,11 +332,12 @@ internal sealed class MainWindow : D3D11SwapChainWindow
             return;
 
         // a monitor change or a zoom change means new metrics, the text formats are sized in pixels.
-        if (Math.Abs(resources.DpiScale - DpiScale * _zoom) > float.Epsilon)
+        if (Math.Abs(resources.DpiScale - DpiScale * _zoom) > float.Epsilon || _appearance != _builtAppearance)
         {
             resources.Dispose();
-            resources = new RenderResources(context, DpiScale, _zoom);
+            resources = new RenderResources(context, DpiScale, _zoom, _settings);
             _resources = resources;
+            _builtAppearance = _appearance;
         }
 
         _counters.BeginFrame();
@@ -232,6 +357,8 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         var client = ClientRect;
         var bounds = new D2D_RECT_F { left = 0, top = 0, right = client.Width, bottom = client.Height };
         _titleBar.IsMaximized = IsZoomed;
+
+        // the plain dpi, no zoom. the caption is the window's own furniture and behaves like any other title bar, it follows the monitor.
         _titleBar.Update(bounds, DpiScale);
         _titleBar.BackEnabled = _back.Count > 0;
         _titleBar.ForwardEnabled = _forward.Count > 0;
@@ -244,7 +371,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         _counters.BufferBytes = _items.BufferBytes;
 
         // finished shell pixels become device bitmaps here, on the thread that owns the device.
-        // it uploads a bounded number per frame, so a backlog owes another frame to finish draining.
         var moreImages = _images?.Upload(context) == true;
 
         context.BeginDraw();
@@ -253,7 +379,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         context.FillRectangle(_splitterBounds, _splitterHot || _splitterDragging ? resources.SplitterHotBrush : resources.SplitterBrush);
         if (_images != null)
         {
-            view.Render(context, resources, _images, _path);
+            view.Render(context, resources, _images, _path, _location.HoldsStreams);
         }
 
         _titleBar.Render(context, resources, _titleText);
@@ -263,6 +389,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         }
 
         _overlay.Render(context, resources, _counters, bounds);
+        _menu.Render(context, resources);
         context.EndDraw();
 
         _counters.EndFrame();
@@ -441,8 +568,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         _ = NavigateAsync(path, resolved);
     }
 
-    // "open in new process" means what it says, another one of us rather than another folder in this one.
-    // where this window sits goes with it, so the new one opens beside this one instead of exactly on top of it.
     private void StartNewProcess(string path)
     {
         var executable = Environment.ProcessPath;
@@ -603,6 +728,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
 
         _listed = true;
         _location = location;
+        RememberLocation(location);
         _path = location.Path ?? string.Empty;
         _titleText = location.IsFileSystem ? location.Path! : location.DisplayName;
         Text = _title + " - " + _titleText;
@@ -702,7 +828,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
             return;
 
         ref readonly var entry = ref _items.EntryAt(position);
-        if (entry.IsDirectory)
+        if (entry.IsDirectory && !OpensAsFile(entry))
         {
             using var item = ItemFor(position);
             var target = item == null ? null : ShellLocation.From(item);
@@ -716,8 +842,32 @@ internal sealed class MainWindow : D3D11SwapChainWindow
             return;
         }
 
+        // an archive is a file on disk and a folder to the shell, and here is where the two disagree.
+        // Windows 11 browses one, so this browses it too rather than handing it to Explorer, unless the option asked for the file back.
+        if (BrowsesAsFolder(entry) && TryBrowseInto(position))
+            return;
+
         Launch(position);
     }
+
+    private bool BrowsesAsFolder(in FileEntry entry) => ArchiveExtensions.ShownAsFolders && !_settings.OpenArchivesAsFiles && ArchiveExtensions.IsArchive(_items.ExtensionOf(entry));
+
+    private bool TryBrowseInto(int position)
+    {
+        using var item = ItemFor(position);
+        if (item == null || !ShellItems.IsFolder(item))
+            return false;
+
+        var target = ShellLocation.From(item);
+        if (target == null)
+            return false;
+
+        NavigateFrom(target);
+        return true;
+    }
+
+    // Windows 11 hands out an archive as a folder, and this is the option that asks for the file back.
+    private bool OpensAsFile(in FileEntry entry) => _settings.OpenArchivesAsFiles && ArchiveExtensions.IsArchive(_items.ExtensionOf(entry));
 
     private ShellItem? ItemFor(int position)
     {
@@ -805,11 +955,9 @@ internal sealed class MainWindow : D3D11SwapChainWindow
                 return new LRESULT();
 
             case MessageDecoder.WM_LBUTTONUP:
-                if (_splitterDragging || View.ScrollbarDragging || _titleBar.Slider.Dragging)
+                if (RouteMouseUp() | _splitterDragging)
                 {
                     _splitterDragging = false;
-                    View.EndScrollbarDrag();
-                    _titleBar.Slider.EndDrag();
                     Functions.ReleaseCapture();
                     RenderNow();
                 }
@@ -849,7 +997,21 @@ internal sealed class MainWindow : D3D11SwapChainWindow
                 SetHotButton(0);
                 break;
 
+            case MessageDecoder.WM_EXITSIZEMOVE:
+                ScheduleSave();
+                break;
+
+            // clicking another application, or anything else that takes activation away, closes it too.
+            case MessageDecoder.WM_ACTIVATE:
+                if ((wParam.Value & 0xFFFF) == 0)
+                {
+                    DismissMenu();
+                }
+                break;
+
             case MessageDecoder.WM_NCLBUTTONDOWN:
+            case MessageDecoder.WM_NCRBUTTONDOWN:
+                DismissMenu();
                 switch ((int)wParam.Value)
                 {
                     case TitleBar.HitMinimize:
@@ -865,6 +1027,28 @@ internal sealed class MainWindow : D3D11SwapChainWindow
                         return new LRESULT();
                 }
                 break;
+
+            // per monitor v2, so a move to a screen with other scaling arrives here with the rectangle the window should take.
+            case MessageDecoder.WM_DPICHANGED:
+                if (!IsPlacing)
+                {
+                    unsafe
+                    {
+                        var suggested = *(RECT*)lParam.Value;
+                        Functions.SetWindowPos(
+                            hwnd,
+                            HWND.Null,
+                            suggested.left,
+                            suggested.top,
+                            suggested.Width,
+                            suggested.Height,
+                            SET_WINDOW_POS_FLAGS.SWP_NOZORDER | SET_WINDOW_POS_FLAGS.SWP_NOACTIVATE);
+                    }
+                }
+
+                DismissMenu();
+                ScheduleSave();
+                return new LRESULT();
 
             case MessageDecoder.WM_SETCURSOR:
                 if ((_splitterHot || _splitterDragging) && (lParam.Value & 0xFFFF) == _hitTestClient)
@@ -885,6 +1069,13 @@ internal sealed class MainWindow : D3D11SwapChainWindow
 
     private void OnMouseWheel(int delta)
     {
+        if (Modal != null)
+        {
+            RouteWheel(_lastMouseX, _lastMouseY, delta);
+            RenderNow();
+            return;
+        }
+
         DismissPreview();
         if (Functions.GetKeyState((int)VIRTUAL_KEY.VK_CONTROL) < 0)
         {
@@ -893,13 +1084,10 @@ internal sealed class MainWindow : D3D11SwapChainWindow
             return;
         }
 
-        if (_places.IndexAt(_lastMouseX, _lastMouseY) >= 0 || Contains(_places.Bounds, _lastMouseX, _lastMouseY))
+        // whichever list is under the pointer takes it, and the listing takes it when none is.
+        if (!RouteWheel(_lastMouseX, _lastMouseY, delta))
         {
-            _places.ScrollByWheel(delta);
-        }
-        else
-        {
-            View.ScrollByWheel(delta);
+            ((Control)View).OnWheel(View.Bounds.left + 1, View.Bounds.top + 1, delta);
         }
 
         RenderNow();
@@ -911,6 +1099,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         _lastMouseY = y;
         SetHotButton(0);
 
+        // the splitter belongs to the window rather than to any control, it is the gap between two of them.
         if (_splitterDragging)
         {
             _paneWidth = (x - _splitterGrabOffset) / DpiScale;
@@ -918,32 +1107,15 @@ internal sealed class MainWindow : D3D11SwapChainWindow
             return;
         }
 
-        if (_titleBar.Slider.Dragging)
-        {
-            _titleBar.Slider.Drag(x);
-            RenderNow();
-            return;
-        }
+        var before = View.HoverPosition;
+        var changed = RouteMouseMove(x, y);
 
-        if (View.ScrollbarDragging)
-        {
-            View.DragScrollbar(y);
-            RenderNow();
-            return;
-        }
-
-        var changed = _titleBar.SetNavigationHover(x, y);
-        changed |= _titleBar.SetSliderHover(x, y);
         var hot = Contains(_splitterBounds, x, y);
         if (hot != _splitterHot)
         {
             _splitterHot = hot;
             changed = true;
         }
-
-        var before = View.HoverPosition;
-        changed |= View.SetHover(x, y);
-        changed |= _places.SetHover(x, y);
 
         if (View.HoverPosition != before)
         {
@@ -978,10 +1150,40 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         }
     }
 
+    // the first image in the listing, shown while the preview size is being chosen so the slider has something to act on.
+    // without it the slider moves against nothing, the menu holds the mouse so no file can be hovered.
+    private void ShowPreviewSample()
+    {
+        if (!_preview.IsEnabled)
+        {
+            _preview.Hide();
+            return;
+        }
+
+        if (_preview.Visible)
+            return;
+
+        if (!_location.IsFileSystem)
+            return;
+
+        for (var position = 0; position < _items.Count; position++)
+        {
+            ref readonly var entry = ref _items.EntryAt(position);
+            if (!entry.IsDirectory && ImageExtensions.CanDecode(_items.ExtensionOf(entry)))
+            {
+                _preview.Show(position);
+                return;
+            }
+        }
+    }
+
     private void ShowPreview()
     {
         var position = View.HoverPosition;
         if (position < 0 || position >= _items.Count)
+            return;
+
+        if (!_preview.IsEnabled)
             return;
 
         ref readonly var entry = ref _items.EntryAt(position);
@@ -995,6 +1197,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
     private void OnMouseDown(float x, float y, bool doubleClick)
     {
         DismissPreview();
+
         if (Contains(_splitterBounds, x, y))
         {
             _splitterDragging = true;
@@ -1003,33 +1206,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
             return;
         }
 
-        if (_titleBar.Slider.BeginDrag(x, y))
-        {
-            Functions.SetCapture(Handle);
-            RenderNow();
-            return;
-        }
-
-        if (_titleBar.OnClick(x, y))
-        {
-            RenderNow();
-            return;
-        }
-
-        if (View.BeginScrollbarDrag(x, y))
-        {
-            Functions.SetCapture(Handle);
-            RenderNow();
-            return;
-        }
-
-        if (_places.OnClick(x, y))
-        {
-            RenderNow();
-            return;
-        }
-
-        if (View.OnClick(x, y, doubleClick))
+        if (RouteMouseDown(x, y, doubleClick))
         {
             RenderNow();
         }
@@ -1066,6 +1243,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         Functions.SetForegroundWindow(Handle);
 
         string? verb = null;
+        var invoked = false;
         var site = new ContextMenuSite(Handle);
         var flags = ShellN.CMF.CMF_EXPLORE | ShellN.CMF.CMF_EXTENDEDVERBS | ShellN.CMF.CMF_CANRENAME;
         if (onItem)
@@ -1087,21 +1265,86 @@ internal sealed class MainWindow : D3D11SwapChainWindow
 
         Functions.PostMessageW(Handle, MessageDecoder.WM_NULL);
 
-        var requested = site.NavigateToParsingName;
-        if (requested != null)
+        if (invoked)
         {
-            NavigateFrom(requested, verb.EqualsIgnoreCase("opennewprocess"));
-            return;
+            var requested = site.NavigateToParsingName;
+            if (requested != null)
+            {
+                NavigateFrom(requested, verb.EqualsIgnoreCase("opennewprocess"));
+                return;
+            }
         }
 
         // a command may have renamed or deleted something, so the listing is read again. the view keeps its place, which a plain navigation would throw away.
         Functions.SetForegroundWindow(Handle);
-        Refresh();
+        //Refresh();
 
         HRESULT getVerb(ShellN.IContextMenu cm, HWND hwnd, uint id)
         {
+            invoked = true;
+            site.NavigateToParsingName = null;
             verb = MenuItem.GetCommandString(cm, id);
             return ShellItem.Invoke(cm, hwnd, id);
+        }
+    }
+
+    // the folder is kept so the next run opens on it, and so the recent list has something to show.
+    private void RememberLocation(ShellLocation location)
+    {
+        var name = location.ParsingName;
+        if (name.Length == 0)
+            return;
+
+        SettingsFile.RememberFolder(_settings, name, location.DisplayName);
+        ScheduleSave();
+    }
+
+    private void ScheduleSave()
+    {
+        _savePending = true;
+        _saveTimer.Change(_saveQuietMilliseconds, Timeout.Infinite);
+    }
+
+    // the timer runs on its own thread, and everything it touches belongs to the UI one, so it only asks.
+    private void OnSaveElapsed()
+    {
+        try
+        {
+            _ = RunTaskOnUIThread(SaveSettings);
+        }
+        catch (Exception ex)
+        {
+            // the window is on its way out, and Dispose writes the settings anyway.
+            Application.TraceVerbose($"a settings save was dropped: {ex.Message}");
+        }
+    }
+
+    private void SaveSettings()
+    {
+        if (!_savePending)
+            return;
+
+        _savePending = false;
+        CapturePosition();
+        SettingsFile.SaveLater(_settings);
+    }
+
+    // on the way out there is no later, so the file is written before the window goes.
+    private void SaveSettingsNow()
+    {
+        _savePending = false;
+        CapturePosition();
+        SettingsFile.Save(_settings);
+    }
+
+    // read at the moment of writing rather than tracked as it moves, a window is moved and sized constantly and
+    // only the last of it matters.
+    private void CapturePosition()
+    {
+        var position = WindowPosition.Get(this);
+        if (position != null)
+        {
+            _settings.Window = position.Value.ToString();
         }
     }
 
@@ -1116,6 +1359,13 @@ internal sealed class MainWindow : D3D11SwapChainWindow
 
     private bool OnKeyDown(VIRTUAL_KEY key)
     {
+        var modal = Modal;
+        if (modal != null && modal.OnKeyDown(key))
+        {
+            RenderNow();
+            return true;
+        }
+
         var view = View;
         var page = view.PageSize;
         var step = view.Columns;
@@ -1193,10 +1443,325 @@ internal sealed class MainWindow : D3D11SwapChainWindow
     private static float LowWord(LPARAM value) => (short)(value.Value & 0xFFFF);
     private static float HighWord(LPARAM value) => (short)((value.Value >> 16) & 0xFFFF);
 
+    // the menu is dismissed from several places, a click outside it, the caption, losing activation, so it is
+    // one call rather than the same three lines each time.
+    private void DismissMenu()
+    {
+        if (!_menu.IsOpen)
+            return;
+
+        _menu.Close();
+        RenderNow();
+    }
+
+    // the same menu the gear uses, with the sizes anyone would want, hung under the zoom rather than the gear.
+    private void OnZoomPressed()
+    {
+        if (_menu.IsOpen)
+        {
+            DismissMenu();
+            return;
+        }
+
+        var resources = _resources;
+        if (resources == null)
+            return;
+
+        var client = ClientRect;
+        var frame = new D2D_RECT_F { left = 0, top = 0, right = client.Width, bottom = client.Height };
+        _menu.Open(BuildZoomEntries(), _titleBar.ZoomBounds, frame, resources);
+        RenderNow();
+    }
+
+    private List<MenuEntry> BuildZoomEntries()
+    {
+        var entries = new List<MenuEntry>();
+        foreach (var percent in _zoomStops)
+        {
+            var chosen = percent;
+            entries.Add(new MenuEntry
+            {
+                Label = chosen + " %",
+                Kind = MenuEntryKind.Toggle,
+                Checked = () => MathF.Abs(_zoom * 100 - chosen) < 1,
+                Invoked = () => Zoom = chosen / 100f,
+            });
+        }
+
+        return entries;
+    }
+
+    private void OnSettingsPressed()
+    {
+        if (_menu.IsOpen)
+        {
+            _menu.Close();
+            RenderNow();
+            return;
+        }
+
+        var resources = _resources;
+        if (resources == null)
+            return;
+
+        var client = ClientRect;
+        var frame = new D2D_RECT_F { left = 0, top = 0, right = client.Width, bottom = client.Height };
+        _menu.Open(BuildSettingsEntries(), _titleBar.GearBounds, frame, resources);
+        RenderNow();
+    }
+
+    private void OnSettingChanged()
+    {
+        _appearance++;
+        ScheduleSave();
+        RenderNow();
+    }
+
+    private static MenuEntry Toggle(string label, Func<bool> get, Action<bool> set) => new()
+    {
+        Label = label,
+        Kind = MenuEntryKind.Toggle,
+        Checked = get,
+        Invoked = () => set(!get()),
+    };
+
+    private IReadOnlyList<MenuEntry> BuildSettingsEntries() =>
+    [
+        new MenuEntry
+        {
+            Label = Res.SettingFont,
+            Kind = MenuEntryKind.Choice,
+            Value = () => _settings.FontFamily,
+            Children = FontEntries,
+        },
+        new MenuEntry
+        {
+            Label = Res.SettingFontSize,
+            Kind = MenuEntryKind.Slider,
+            Minimum = _minFontSize,
+            Maximum = _maxFontSize,
+            Step = 0.5,
+            Number = () => _settings.FontSize,
+            SetNumber = value => _settings.FontSize = value,
+            Value = () => _settings.FontSize.ToString("0.#"),
+        },
+        new MenuEntry
+        {
+            Label = Res.SettingTextColor,
+            Kind = MenuEntryKind.Color,
+            Value = () => _settings.TextColor,
+            Invoked = PickTextColor,
+        },
+        new MenuEntry
+        {
+            Label = Res.SettingThumbnailSpacing,
+            Kind = MenuEntryKind.Slider,
+            Minimum = 0,
+            Maximum = _maxSpacingPercent,
+            Step = 10,
+            Number = () => _settings.CellSpacingPercent,
+            SetNumber = value => _settings.CellSpacingPercent = value,
+            Value = () => _settings.CellSpacingPercent.ToString("0") + " %",
+        },
+        new MenuEntry
+        {
+            Label = Res.SettingImagePreview,
+            Kind = MenuEntryKind.Slider,
+            Minimum = 0,
+            Maximum = _maxPreviewPercent,
+            Step = 5,
+            Number = () => _settings.PreviewPercent,
+            SetNumber = value =>
+            {
+                _settings.PreviewPercent = value;
+                ShowPreviewSample();
+            },
+            Value = () => _settings.PreviewPercent <= 0 ? Res.SettingOff : _settings.PreviewPercent.ToString("0") + " %",
+        },
+        MenuEntry.Separator,
+        Toggle(Res.SettingSquareThumbnails, () => _settings.SquareThumbnails, value => _settings.SquareThumbnails = value),
+        Toggle(Res.SettingThumbnailTitles, () => _settings.ThumbnailTitles, value => _settings.ThumbnailTitles = value),
+        Toggle(Res.SettingWrapThumbnailTitles, () => _settings.WrapThumbnailTitles, value => _settings.WrapThumbnailTitles = value),
+        new MenuEntry
+        {
+            Label = Res.SettingOpenArchivesAsFiles,
+            Kind = MenuEntryKind.Toggle,
+            Checked = () => _settings.OpenArchivesAsFiles,
+            Invoked = () => _settings.OpenArchivesAsFiles = !_settings.OpenArchivesAsFiles,
+            Enabled = () => ArchiveExtensions.ShownAsFolders,
+        },
+        MenuEntry.Separator,
+        new MenuEntry
+        {
+            Label = Res.SettingRecentFolders,
+            Kind = MenuEntryKind.Submenu,
+            Children = RecentEntries,
+        },
+        MenuEntry.Separator,
+        new MenuEntry
+        {
+            Label = Res.SettingSettingsFile,
+            Kind = MenuEntryKind.Command,
+            Value = () => SettingsFile.IsPortable ? Res.SettingPortable : Res.SettingRoaming,
+            Invoked = RevealSettingsFile,
+            ClosesMenu = true,
+        },
+    ];
+
+    private IReadOnlyList<MenuEntry> FontEntries()
+    {
+        var names = new List<string>();
+        try
+        {
+            using var factory = DWriteFunctions.DWriteCreateFactory();
+            using var collection = factory.GetSystemFontCollection();
+            foreach (var family in collection.GetFamilies())
+            {
+                // the first name is the one for the current language, which is what belongs in a menu.
+                var name = family.GetNames().FirstOrDefault()?.String;
+                if (!string.IsNullOrEmpty(name) && !IsSymbolFamily(family))
+                {
+                    names.Add(name);
+                }
+
+                family.Dispose();
+            }
+        }
+        catch (Exception ex)
+        {
+            Application.TraceError($"the installed fonts could not be listed: {ex}");
+        }
+
+        names.Sort(StringComparer.CurrentCultureIgnoreCase);
+
+        var entries = new List<MenuEntry>();
+        foreach (var name in names)
+        {
+            var chosen = name;
+            entries.Add(new MenuEntry
+            {
+                Label = chosen,
+
+                // each one drawn in itself, which says more about a font than its name does.
+                PreviewFamily = chosen,
+                Kind = MenuEntryKind.Toggle,
+                Checked = () => _settings.FontFamily.EqualsIgnoreCase(chosen),
+                Invoked = () => _settings.FontFamily = chosen,
+            });
+        }
+
+        return entries;
+    }
+
+    private static bool IsSymbolFamily(IComObject<IDWriteFontFamily> family)
+    {
+        try
+        {
+            family.Object.GetFont(0, out var font).ThrowOnError();
+            using var first = new ComObject<IDWriteFont>(font);
+            return first.Object.IsSymbolFont();
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    // where the window has been, most recent first, with the ways of forgetting under them.
+    private List<MenuEntry> RecentEntries()
+    {
+        var entries = new List<MenuEntry>();
+        foreach (var folder in _settings.RecentFolders)
+        {
+            var target = folder.ParsingName;
+            entries.Add(new MenuEntry
+            {
+                Label = folder.ToString(),
+                Kind = MenuEntryKind.Command,
+                ClosesMenu = true,
+                Invoked = () => NavigateFrom(target),
+            });
+        }
+
+        if (entries.Count == 0)
+        {
+            entries.Add(new MenuEntry { Label = Res.SettingNoRecentFolders, Kind = MenuEntryKind.Command, ClosesMenu = true });
+            return entries;
+        }
+
+        entries.Add(MenuEntry.Separator);
+        entries.Add(new MenuEntry
+        {
+            Label = Res.SettingRemoveMissingFolders,
+            Kind = MenuEntryKind.Command,
+            Invoked = () => _ = ForgetMissingFoldersAsync(),
+        });
+
+        entries.Add(new MenuEntry
+        {
+            Label = Res.SettingClearRecentFolders,
+            Kind = MenuEntryKind.Command,
+            Invoked = () => SettingsFile.ForgetAllFolders(_settings),
+        });
+
+        return entries;
+    }
+
+    // the menu stays up while the shell is asked about every folder in it, and the rows go when the answers are
+    // in, which is the whole point of the command.
+    private async Task ForgetMissingFoldersAsync()
+    {
+        if (!await SettingsFile.ForgetMissingFoldersAsync(_settings, ShellItems.Exists).ConfigureAwait(true))
+            return;
+
+        ScheduleSave();
+        _menu.Refresh();
+        RenderNow();
+    }
+
+    private unsafe void PickTextColor()
+    {
+        var current = _settings.Text;
+        Span<uint> custom = stackalloc uint[_customColorCount];
+        fixed (uint* colors = custom)
+        {
+            var choose = new CHOOSECOLORW
+            {
+                lStructSize = (uint)sizeof(CHOOSECOLORW),
+                hwndOwner = Handle,
+                lpCustColors = (nint)colors,
+                rgbResult = new COLORREF((uint)(current.BR | (current.BG << 8) | (current.BB << 16))),
+                Flags = CHOOSECOLOR_FLAGS.CC_RGBINIT | CHOOSECOLOR_FLAGS.CC_FULLOPEN,
+            };
+
+            if (!Functions.ChooseColorW(ref choose))
+                return;
+
+            var value = choose.rgbResult.Value;
+            var picked = D3DCOLORVALUE.FromArgb(current.BA, (byte)(value & 0xFF), (byte)((value >> 8) & 0xFF), (byte)((value >> 16) & 0xFF));
+            _settings.TextColor = picked.HtmlString;
+        }
+    }
+
+    private void RevealSettingsFile()
+    {
+        var folder = Path.GetDirectoryName(SettingsFile.Location);
+        if (folder == null)
+            return;
+
+        Directory.CreateDirectory(folder);
+        NavigateFrom(folder);
+    }
+
     protected override void Dispose(bool disposing)
     {
         if (disposing)
         {
+            // written on the way out whether or not anything asked for it, because where the window ended up is
+            // never something that asked.
+            _saveTimer.Dispose();
+            SaveSettingsNow();
+
             _scan?.Cancel();
             _scan?.Dispose();
             _scan = null;

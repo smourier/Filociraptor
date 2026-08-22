@@ -4,8 +4,7 @@ using ShellN.Extensions;
 namespace Filociraptor.Shell;
 
 // where the listing is. most of the time that is a folder on disk, and then the fast path reads it directly.
-// the rest of the time it is somewhere the shell knows about and the file system does not, This PC or the recycle
-// bin, and only the namespace can answer for it.
+// the rest of the time it is somewhere the shell knows about and the file system does not, This PC or the recycle bin, and only the namespace can answer for it.
 internal sealed class ShellLocation
 {
     private const string _namespacePrefix = "::";
@@ -24,6 +23,10 @@ internal sealed class ShellLocation
     public byte[]? IdList { get; init; }
 
     public bool IsFileSystem => Path != null;
+
+    // an archive, which the shell describes as a folder and a stream at once.
+    // what is inside one is a file with a name and an extension, and nothing the file system can open
+    public bool HoldsStreams { get; init; }
 
     public static ShellLocation ForPath(string path) => new()
     {
@@ -54,8 +57,6 @@ internal sealed class ShellLocation
         if (string.IsNullOrEmpty(parsing))
             return null;
 
-        // a path only counts when it really is a directory we can enumerate.
-        // plenty of things carry a path and are not one, a zip file being the obvious case, and the fast reader would simply fail on those.
         var path = item.GetDisplayName(SIGDN.SIGDN_FILESYSPATH, false);
         if (!string.IsNullOrEmpty(path) && !Directory.Exists(path))
         {
@@ -67,6 +68,7 @@ internal sealed class ShellLocation
             ParsingName = parsing,
             DisplayName = string.IsNullOrEmpty(display) ? parsing : display,
             Path = path,
+            HoldsStreams = path == null && ShellItems.IsStreamFolder(item),
 
             // only where it is needed
             IdList = path == null ? item.GetIdListAsByteArray(false) : null,

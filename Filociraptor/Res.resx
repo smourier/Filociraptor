@@ -174,4 +174,55 @@
   <data name="UnitTeraByte" xml:space="preserve">
     <value> TB</value>
   </data>
+  <data name="SettingFont" xml:space="preserve">
+    <value>Font</value>
+  </data>
+  <data name="SettingFontSize" xml:space="preserve">
+    <value>Font size</value>
+  </data>
+  <data name="SettingTextColor" xml:space="preserve">
+    <value>Text colour</value>
+  </data>
+  <data name="SettingSquareThumbnails" xml:space="preserve">
+    <value>Square thumbnails</value>
+  </data>
+  <data name="SettingThumbnailTitles" xml:space="preserve">
+    <value>Thumbnail titles</value>
+  </data>
+  <data name="SettingWrapThumbnailTitles" xml:space="preserve">
+    <value>Wrap thumbnail titles</value>
+  </data>
+  <data name="SettingOpenArchivesAsFiles" xml:space="preserve">
+    <value>Open archives as files</value>
+  </data>
+  <data name="SettingRecentFolders" xml:space="preserve">
+    <value>Recent folders</value>
+  </data>
+  <data name="SettingRemoveMissingFolders" xml:space="preserve">
+    <value>Remove the ones that are gone</value>
+  </data>
+  <data name="SettingClearRecentFolders" xml:space="preserve">
+    <value>Clear the list</value>
+  </data>
+  <data name="SettingNoRecentFolders" xml:space="preserve">
+    <value>Nothing yet</value>
+  </data>
+  <data name="SettingSettingsFile" xml:space="preserve">
+    <value>Settings file</value>
+  </data>
+  <data name="SettingPortable" xml:space="preserve">
+    <value>beside the program</value>
+  </data>
+  <data name="SettingRoaming" xml:space="preserve">
+    <value>in your profile</value>
+  </data>
+  <data name="SettingImagePreview" xml:space="preserve">
+    <value>Image preview</value>
+  </data>
+  <data name="SettingOff" xml:space="preserve">
+    <value>off</value>
+  </data>
+  <data name="SettingThumbnailSpacing" xml:space="preserve">
+    <value>Thumbnail spacing</value>
+  </data>
 </root>
