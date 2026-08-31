@@ -186,6 +186,8 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         _grid.Settings = settings;
         _preview.Settings = settings;
         InvalidateOnTick = false;
+        // one selection between the two views, so changing view keeps what was chosen.
+        _grid.Selection = _details.Selection;
         _details.ItemActivated = OnItemActivated;
         _details.SortRequested = OnSortRequested;
         _grid.ItemActivated = OnItemActivated;
@@ -259,7 +261,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
             icon,
             background: new HBRUSH());
 
-    // DirectN doesn't support Windows 7, but we wan to
+    // DirectN does not support Windows 7, but we want to.
     protected override IComObject<ID3D11Device>? Device => _device;
     protected override IComObject<ID3D11DeviceContext>? DeviceContext => _d3dContext;
     protected override IComObject<IDXGISwapChain1>? SwapChain => _swapChain;
@@ -310,7 +312,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
             catch (Exception ex)
             {
                 Application.TraceWarning($"{desc.SwapEffect} was refused ({ex.Message}), the swap chain copies instead.");
-                // the flip model came with Windows 10
+                // the flip model came with Windows 10.
                 desc.SwapEffect = DXGI_SWAP_EFFECT.DXGI_SWAP_EFFECT_DISCARD;
                 _swapChain = factory2.CreateSwapChainForHwnd<IDXGISwapChain1>(_device, Handle, desc);
             }
@@ -355,7 +357,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
             : D3D11Functions.D3D11CreateDevice(null!, D3D_DRIVER_TYPE.D3D_DRIVER_TYPE_HARDWARE, flags, out context);
     }
 
-    // there is no IDXGIFactory2 before Windows 8
+    // there is no IDXGIFactory2 before Windows 8.
     private static IComObject<IDXGISwapChain1> CreateOlderSwapChain(IComObject<IDXGIAdapter> adapter, IComObject<ID3D11Device> device, HWND hwnd)
     {
         using var factory = adapter.GetFactory();
@@ -684,7 +686,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         }
         catch (OperationCanceledException)
         {
-            // continue
+            // continue.
         }
     }
 
@@ -823,7 +825,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         if (folderList is null)
             return;
 
-        var position = View.SelectedPosition;
+        var position = View.Selection.Current;
         if (position < 0 || position >= _items.Count)
         {
             ShellN.Functions.SHOpenFolderAndSelectItems(folderList.Pointer, 0, 0, 0);
@@ -861,14 +863,14 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         var location = resolved ?? ShellLocation.Resolve(path);
         if (location == null)
         {
-            // a namespace name has no parent to walk up to, its segments are not directories
+            // a namespace name has no parent to walk up to, its segments are not directories.
             if (ShellLocation.IsNamespaceName(path) && _listed)
             {
                 Application.TraceWarning($"'{path}' could not be resolved, staying in '{_location.ParsingName}'.");
                 return;
             }
 
-            // a folder on disk may simply have gone, with a deleted directory or an unplugged drive, and then go to nearest parent
+            // a folder on disk may simply have gone, with a deleted directory or an unplugged drive, and then go to nearest parent.
             var existing = FirstExisting(path, _defaultPath);
             Application.TraceWarning($"'{path}' could not be resolved, falling back to '{existing}'.");
             location = ShellLocation.Resolve(existing) ?? ShellLocation.ForPath(existing);
@@ -896,7 +898,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         _preview.Hide();
         _images?.OnNavigate();
 
-        // a folder on disk is watched by the file system, anywhere else by the shell
+        // a folder on disk is watched by the file system, anywhere else by the shell.
         if (location.IsFileSystem)
         {
             _namespaceWatcher.Stop();
@@ -933,7 +935,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         }
         catch (OperationCanceledException)
         {
-            // continue
+            // continue.
             return;
         }
         catch (Exception ex)
@@ -1043,7 +1045,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         return parsing.Length > 0 ? parsing.ToString() : Path.Join(_location.Path ?? _path, _items.NameOf(entry));
     }
 
-    // runs the same command Explorer would, and does it off the UI thread because launching an application can take a while and can put up UI of its own
+    // runs the same command Explorer would, and does it off the UI thread because launching an application can take a while and can put up UI of its own.
     private void Launch(int position)
     {
         ref readonly var entry = ref _items.EntryAt(position);
@@ -1377,7 +1379,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         int position;
         if (point.x == -1 && point.y == -1)
         {
-            position = View.SelectedPosition;
+            position = View.Selection.Current;
         }
         else
         {
@@ -1388,7 +1390,13 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         var onItem = position >= 0 && position < _items.Count;
         if (onItem)
         {
-            View.Select(position);
+            // a click inside the selection keeps it, so the menu is for everything chosen,
+            // and a click anywhere else makes that item the selection, which is what every file manager does.
+            if (!View.Selection.Contains(position))
+            {
+                View.Select(position);
+            }
+
             RenderNow();
         }
 
@@ -1406,15 +1414,53 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         var flags = ShellN.CMF.CMF_EXPLORE | ShellN.CMF.CMF_EXTENDEDVERBS | ShellN.CMF.CMF_CANRENAME;
         if (onItem)
         {
-            using var pidl = target.GetIdList(false);
-            if (pidl is null)
-                return;
+            // everything selected, so the menu is the one Explorer shows for a set of files rather than for one,
+            // and they all come from the same listing, so they all share a parent.
+            var chosen = new List<ShellItem>();
+            foreach (var selected in View.Selection.Positions)
+            {
+                if (selected < 0 || selected >= _items.Count)
+                    continue;
 
-            using var parent = target.GetParentIdList();
-            if (parent is null)
-                return;
+                var item = ItemFor(selected);
+                if (item != null)
+                {
+                    chosen.Add(item);
+                }
+            }
 
-            ShellItem.ShowContextMenu(parent, [pidl], site, flags: flags, invoke: getVerb);
+            if (chosen.Count == 0)
+            {
+                chosen.Add(target);
+            }
+
+            var idLists = chosen.Select(i => i.GetIdList(false)).OfType<ItemIdList>().ToArray();
+            try
+            {
+                if (idLists.Length == 0)
+                    return;
+
+                using var parent = chosen[0].GetParentIdList();
+                if (parent is null)
+                    return;
+
+                ShellItem.ShowContextMenu(parent, idLists, site, flags: flags, invoke: getVerb);
+            }
+            finally
+            {
+                foreach (var idList in idLists)
+                {
+                    idList?.Dispose();
+                }
+
+                foreach (var item in chosen)
+                {
+                    if (!ReferenceEquals(item, target))
+                    {
+                        item.Dispose();
+                    }
+                }
+            }
         }
         else
         {
@@ -1495,8 +1541,8 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         SettingsFile.Save(_settings);
     }
 
-    // read at the moment of writing rather than tracked as it moves, a window is moved and sized constantly and
-    // only the last of it matters.
+    // read at the moment of writing rather than tracked as it moves,
+    // because a window is moved and sized constantly and only the last of it matters.
     private void CapturePosition()
     {
         var position = WindowPosition.Get(this);
@@ -1509,9 +1555,9 @@ internal sealed class MainWindow : D3D11SwapChainWindow
     private void Refresh()
     {
         _restoreScroll = View.ScrollOffset;
-        _restoreSelection = View.SelectedPosition;
+        _restoreSelection = View.Selection.Current;
 
-        // the same folder as before
+        // the same folder as before.
         _ = NavigateAsync(_location.ParsingName, _location);
     }
 
@@ -1546,15 +1592,19 @@ internal sealed class MainWindow : D3D11SwapChainWindow
                 break;
 
             case VIRTUAL_KEY.VK_HOME:
-                view.Select(0);
+                view.SelectAt(0);
                 break;
 
             case VIRTUAL_KEY.VK_END:
-                view.Select(_items.Count - 1);
+                view.SelectAt(_items.Count - 1);
+                break;
+
+            case VIRTUAL_KEY.VK_A when Functions.GetKeyState((int)VIRTUAL_KEY.VK_CONTROL) < 0:
+                view.SelectAll();
                 break;
 
             case VIRTUAL_KEY.VK_RETURN:
-                OnItemActivated(view.SelectedPosition);
+                OnItemActivated(view.Selection.Current);
                 return true;
 
             case VIRTUAL_KEY.VK_BACK:
@@ -1601,8 +1651,8 @@ internal sealed class MainWindow : D3D11SwapChainWindow
     private static float LowWord(LPARAM value) => (short)(value.Value & 0xFFFF);
     private static float HighWord(LPARAM value) => (short)((value.Value >> 16) & 0xFFFF);
 
-    // the menu is dismissed from several places, a click outside it, the caption, losing activation, so it is
-    // one call rather than the same three lines each time.
+    // the menu is dismissed from several places, a click outside it, the caption, losing activation,
+    // so it is one call rather than the same three lines each time.
     private void DismissMenu()
     {
         if (!_menu.IsOpen)
@@ -1865,8 +1915,8 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         return entries;
     }
 
-    // the menu stays up while the shell is asked about every folder in it, and the rows go when the answers are
-    // in, which is the whole point of the command.
+    // the menu stays up while the shell is asked about every folder in it,
+    // and the rows go when the answers are in, which is the whole point of the command.
     private async Task ForgetMissingFoldersAsync()
     {
         if (!await SettingsFile.ForgetMissingFoldersAsync(_settings, ShellItems.Exists).ConfigureAwait(true))
@@ -1915,8 +1965,8 @@ internal sealed class MainWindow : D3D11SwapChainWindow
     {
         if (disposing)
         {
-            // written on the way out whether or not anything asked for it, because where the window ended up is
-            // never something that asked.
+            // written on the way out whether or not anything asked for it,
+            // because where the window ended up is never something that asked.
             _saveTimer.Dispose();
             SaveSettingsNow();
 

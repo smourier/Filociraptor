@@ -3,8 +3,8 @@ using ShellN.Extensions;
 
 namespace Filociraptor.Shell;
 
-// tells the drive pane when a drive appears or disappears. the shell is the right source for this rather than
-// device notifications, because it also covers a mapped network drive, which is no device at all.
+// tells the drive pane when a drive appears or disappears.
+// the shell is the right source rather than device notifications, because a mapped network drive is no device.
 internal sealed class DriveNotifier : ChangeNotifier
 {
     private const SHCNE_ID _driveEvents =

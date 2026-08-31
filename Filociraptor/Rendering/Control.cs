@@ -17,7 +17,7 @@ internal abstract class Control
 
     public virtual bool Contains(float x, float y) => x >= Bounds.left && x < Bounds.right && y >= Bounds.top && y < Bounds.bottom;
 
-    // each of these returns true when it dealt with the message
+    // each of these returns true when it dealt with the message.
     public virtual bool OnMouseMove(float x, float y) => false;
     public virtual bool OnMouseDown(float x, float y, bool doubleClick) => false;
     public virtual bool OnMouseUp() => false;

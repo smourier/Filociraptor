@@ -1,7 +1,7 @@
 ﻿namespace Filociraptor.Rendering;
 
-// Segoe MDL2 Assets came with Windows 10 and its symbols live in the private use area
-// where it is missing, the symbols come from Segoe UI Symbol instead, which has shipped since Windows 7, at the code points Unicode gives them rather than at Microsoft's own.
+// Segoe MDL2 Assets came with Windows 10 and its symbols live in the private use area.
+// where it is missing they come from Segoe UI Symbol, which Windows 7 has, at the code points Unicode gives them.
 internal static class Glyphs
 {
     private const string _modernFamily = "Segoe MDL2 Assets";

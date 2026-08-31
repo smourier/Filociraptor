@@ -1,8 +1,7 @@
-namespace Filociraptor.Shell;
+﻿namespace Filociraptor.Shell;
 
 // the archives Windows itself opens as folders.
-// Windows 11 browses all of these, Windows 10 only the zip, which is why the option that turns them back into
-// files is offered on one and not on the other.
+// Windows 11 browses all of these and Windows 10 only the zip, which is why the option is offered on one only.
 internal static class ArchiveExtensions
 {
     // the first build that shipped the wider archive support, everything before it browses zip and nothing else.

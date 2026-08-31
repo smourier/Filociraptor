@@ -59,7 +59,7 @@ internal static class DriveScanner
 
     // the file system is asked, not the shell.
     // the shell's answer is the better one, it leaves out a letter with no device behind it, which is how a virtual machine's floppy controller turns into an A: that Explorer does not show.
-    // but measured here it costs more
+    // but measured here it costs more.
     private static string[] GetRoots()
     {
         try

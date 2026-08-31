@@ -92,15 +92,14 @@ internal sealed class ShellImageLoader : IDisposable
                     }
                     else if (request.Attempt + 1 < _maxAttempts)
                     {
-                        // the shell answered with nothing, which it does now and then for an item it can perfectly
-                        // well describe a moment later. asking again is what stops a row keeping an empty icon
-                        // until the folder is read again.
+                        // the shell answered with nothing, which it does now and then for an item it describes well later.
+                        // asking again is what stops a row keeping an empty icon until the folder is read again.
                         Push(request with { Attempt = request.Attempt + 1 });
                     }
                     else
                     {
-                        // out of tries, and the cache has to hear about it or it will hold the request as pending
-                        // and never ask for this one again.
+                        // out of tries, and the cache has to hear about it,
+                        // or it will hold the request as pending and never ask for this one again.
                         _results.Enqueue(ShellImage.Nothing(request));
                         _imageReady();
                     }
@@ -113,7 +112,7 @@ internal sealed class ShellImageLoader : IDisposable
         }
         catch (OperationCanceledException)
         {
-            // continue
+            // continue.
         }
     }
 

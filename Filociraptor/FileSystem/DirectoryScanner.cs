@@ -31,8 +31,8 @@ internal static class DirectoryScanner
             ReturnSpecialDirectories = false,
         };
 
-        // the transform copies straight into the flat buffers. FileSystemEntry is a ref struct over the raw
-        // find data, so nothing is allocated per file, not even the name.
+        // the transform copies straight into the flat buffers.
+        // FileSystemEntry is a ref struct over the raw find data, so nothing is allocated per file, not even the name.
         var enumerable = new FileSystemEnumerable<byte>(path, (ref entry) =>
         {
             items.Add(ref entry);

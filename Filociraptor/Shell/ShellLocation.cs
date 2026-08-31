@@ -19,13 +19,13 @@ internal sealed class ShellLocation
     // the folder on disk, null when there is not one. this is what decides which enumerator runs.
     public string? Path { get; init; }
 
-    // the id list of the folder, kept because a parsing name does not always find it again
+    // the id list of the folder, kept because a parsing name does not always find it again.
     public byte[]? IdList { get; init; }
 
     public bool IsFileSystem => Path != null;
 
     // an archive, which the shell describes as a folder and a stream at once.
-    // what is inside one is a file with a name and an extension, and nothing the file system can open
+    // what is inside one is a file with a name and an extension, and nothing the file system can open.
     public bool HoldsStreams { get; init; }
 
     public static ShellLocation ForPath(string path) => new()
@@ -70,7 +70,7 @@ internal sealed class ShellLocation
             Path = path,
             HoldsStreams = path == null && ShellItems.IsStreamFolder(item),
 
-            // only where it is needed
+            // only where it is needed.
             IdList = path == null ? item.GetIdListAsByteArray(false) : null,
         };
     }

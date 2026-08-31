@@ -95,7 +95,7 @@ internal static unsafe class ShellItems
         return item;
     }
 
-    // an id list (PIDL) is THE identity that always works
+    // an id list (PIDL) is THE identity that always works.
     public static ShellItem? Bind(ReadOnlySpan<byte> idList)
     {
         if (idList.IsEmpty)

@@ -260,8 +260,8 @@ internal sealed class PlacesView : Control
         var titleRect = new D2D_RECT_F { left = left, top = y + padding / 2, right = right, bottom = y + padding / 2 + lineHeight };
         TextDrawing.Draw(deviceContext, text.Text, resources.RowFormat, titleRect, resources.TextBrush);
 
-        // nothing is said about the room on it until it has been asked, because saying "not ready" first and
-        // correcting it a moment later is worse than saying nothing at all.
+        // nothing is said about the room on it until it has been asked,
+        // because saying "not ready" first and correcting it a moment later is worse than saying nothing.
         if (drive.IsPending)
             return;
 

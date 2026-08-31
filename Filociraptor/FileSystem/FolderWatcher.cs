@@ -34,7 +34,7 @@ internal sealed class FolderWatcher : IDisposable
         {
             var watcher = new FileSystemWatcher(path)
             {
-                // we want only these
+                // we want only these.
                 NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.Size | NotifyFilters.LastWrite,
                 IncludeSubdirectories = false,
             };

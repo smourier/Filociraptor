@@ -1,4 +1,4 @@
-using ShellN;
+﻿using ShellN;
 using ShellN.Extensions;
 
 namespace Filociraptor.Shell;
@@ -16,10 +16,10 @@ internal static class PlacesScanner
         var places = new List<PlaceEntry>();
         try
         {
-            // shared and cached by ShellN, and not ours to dispose
+            // shared and cached by ShellN, and not ours to dispose.
             var desktop = ShellFolder.Desktop;
 
-            // folders only, the way a tree does it
+            // folders only, the way a tree does it.
             foreach (var child in desktop.EnumerateChildren(_SHCONTF.SHCONTF_FOLDERS))
             {
                 var name = child.GetDisplayName(SIGDN.SIGDN_NORMALDISPLAY, false);

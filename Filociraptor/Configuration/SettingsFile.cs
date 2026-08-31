@@ -1,6 +1,6 @@
 ﻿namespace Filociraptor.Configuration;
 
-// a file sitting next to the executable wins, which is what makes a copied folder portable, and it is only ever used when it is already there, so an ordinary install writes under the user's local app data instead
+// a file sitting next to the executable wins, which is what makes a copied folder portable, and it is only ever used when it is already there, so an ordinary install writes under the user's local app data instead.
 internal static class SettingsFile
 {
     private const string _fileName = "filo.settings.json";
@@ -67,14 +67,14 @@ internal static class SettingsFile
     public static void Save(Settings settings) => Write(Snapshot(settings));
 
     // the settings are turned into bytes on the thread that owns them, which costs microseconds, and only the writing is handed away,
-    // because a file written on the thread that draws is a frame that waits for a disk
+    // because a file written on the thread that draws is a frame that waits for a disk.
     public static void SaveLater(Settings settings)
     {
         var bytes = Snapshot(settings);
         if (bytes == null)
             return;
 
-        // chained rather than thrown at the pool, so the last snapshot taken is the last one left on disk
+        // chained rather than thrown at the pool, so the last snapshot taken is the last one left on disk.
         lock (_queueLock)
         {
             _writes = _writes.ContinueWith(_ => Write(bytes), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);

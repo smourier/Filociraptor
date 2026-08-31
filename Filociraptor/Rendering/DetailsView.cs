@@ -24,7 +24,7 @@ internal sealed class DetailsView : Control, IItemsView
     private int _hoverColumn = -1;
 
     public FolderItems? Items { get; set; }
-    public int SelectedPosition { get; private set; } = -1;
+    public Selection Selection { get; set; } = new();
     public float RowHeight { get; private set; } = 22;
     public Action<int>? ItemActivated { get; set; }
     public Action<SortColumn>? SortRequested { get; set; }
@@ -88,7 +88,7 @@ internal sealed class DetailsView : Control, IItemsView
     public void Reset()
     {
         _scrollY = 0;
-        SelectedPosition = -1;
+        Selection.Clear();
         _hoverPosition = -1;
     }
 
@@ -118,26 +118,6 @@ internal sealed class DetailsView : Control, IItemsView
 
         var position = (int)((y - ListTop + _scrollY) / RowHeight);
         return position >= 0 && position < items.Count ? position : -1;
-    }
-
-    public void Select(int position)
-    {
-        var items = Items;
-        if (items == null || items.Count == 0)
-            return;
-
-        SelectedPosition = Math.Clamp(position, 0, items.Count - 1);
-        EnsureVisible(SelectedPosition);
-    }
-
-    public void MoveSelection(int delta)
-    {
-        var items = Items;
-        if (items == null || items.Count == 0)
-            return;
-
-        var position = SelectedPosition < 0 ? 0 : SelectedPosition + delta;
-        Select(position);
     }
 
     public void EnsureVisible(int position)
@@ -180,7 +160,7 @@ internal sealed class DetailsView : Control, IItemsView
         if (position < 0)
             return false;
 
-        SelectedPosition = position;
+        ((IItemsView)this).SelectAt(position);
         if (doubleClick)
         {
             ItemActivated?.Invoke(position);
@@ -341,7 +321,7 @@ internal sealed class DetailsView : Control, IItemsView
             ref readonly var entry = ref items.EntryAt(position);
             var rowRect = new D2D_RECT_F { left = Bounds.left, top = y, right = Bounds.right, bottom = y + RowHeight };
 
-            if (position == SelectedPosition)
+            if (Selection.Contains(position))
             {
                 deviceContext.FillRectangle(rowRect, resources.SelectionBrush);
             }
@@ -351,8 +331,8 @@ internal sealed class DetailsView : Control, IItemsView
             }
 
             var isDirectory = entry.IsDirectory;
-            var nameBrush = resources.NameBrush(entry, position == SelectedPosition);
-            var detailBrush = position == SelectedPosition ? resources.TextBrush : resources.DimTextBrush;
+            var nameBrush = resources.NameBrush(entry, Selection.Contains(position));
+            var detailBrush = Selection.Contains(position) ? resources.TextBrush : resources.DimTextBrush;
 
             var name = items.NameOf(entry);
             var extension = items.ExtensionOf(entry);

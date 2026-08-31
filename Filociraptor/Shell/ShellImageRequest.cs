@@ -17,8 +17,8 @@ internal readonly struct ShellImageRequest
     // a first pass accepts only what the shell has already cached, so scrolling never waits on an extraction.
     public bool CachedOnly { get; init; }
 
-    // how many times this has been asked for. the shell can simply not answer, and one silent failure used to
-    // leave the row blank for as long as the folder stayed open.
+    // how many times this has been asked for.
+    // the shell can simply not answer, and one silent failure used to leave the row blank while the folder stayed open.
     public int Attempt { get; init; }
 
     // one real file carrying this extension, for the types whose registered icon lives inside the file itself.

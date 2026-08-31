@@ -133,7 +133,7 @@ internal sealed class ImageCache : IDisposable
         return null;
     }
 
-    // the preview is decoded from the file by WIC rather than taken from the shell
+    // the preview is decoded from the file by WIC rather than taken from the shell.
     public IComObject<ID2D1Bitmap>? GetOrRequestPreview(ReadOnlySpan<char> name, string folderPath, int size)
     {
         size = StandardSize(size);

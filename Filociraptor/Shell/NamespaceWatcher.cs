@@ -7,10 +7,10 @@ namespace Filociraptor.Shell;
 // there is no file system underneath virtual folders, so the shell is the only thing that can say when they change.
 internal sealed class NamespaceWatcher : IDisposable
 {
-    // debouncing the events is necessary because a single change can generate many notifications
+    // debouncing the events is necessary because a single change can generate many notifications.
     private const int _quietMilliseconds = 400;
 
-    // we're only interested in changes to the folder itself
+    // we're only interested in changes to the folder itself.
     private const SHCNE_ID _globalNoise = SHCNE_ID.SHCNE_ASSOCCHANGED | SHCNE_ID.SHCNE_UPDATEIMAGE | SHCNE_ID.SHCNE_FREESPACE | SHCNE_ID.SHCNE_SERVERDISCONNECT;
 
     private readonly Action _changed;

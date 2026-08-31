@@ -27,7 +27,7 @@ internal sealed class GridView : Control, IItemsView
     // what the user asked for, read every frame so a change shows without anything being rebuilt.
     public Settings? Settings { get; set; }
     public Action<int>? ItemActivated { get; set; }
-    public int SelectedPosition { get; private set; } = -1;
+    public Selection Selection { get; set; } = new();
     public ViewMode Mode { get; set; } = ViewMode.MediumIcons;
 
     public float ScrollOffset { get => _scrollY; set => _scrollY = Math.Max(0, value); }
@@ -92,7 +92,7 @@ internal sealed class GridView : Control, IItemsView
     public void Reset()
     {
         _scrollY = 0;
-        SelectedPosition = -1;
+        Selection.Clear();
         _hoverPosition = -1;
     }
 
@@ -144,7 +144,7 @@ internal sealed class GridView : Control, IItemsView
         if (position < 0)
             return false;
 
-        SelectedPosition = position;
+        ((IItemsView)this).SelectAt(position);
         if (doubleClick)
         {
             ItemActivated?.Invoke(position);
@@ -153,19 +153,7 @@ internal sealed class GridView : Control, IItemsView
         return true;
     }
 
-    public void Select(int position)
-    {
-        var items = Items;
-        if (items == null || items.Count == 0)
-            return;
-
-        SelectedPosition = Math.Clamp(position, 0, items.Count - 1);
-        EnsureVisible(SelectedPosition);
-    }
-
-    public void MoveSelection(int delta) => Select(SelectedPosition < 0 ? 0 : SelectedPosition + delta);
-
-    private void EnsureVisible(int position)
+    public void EnsureVisible(int position)
     {
         var row = position / _columns;
         var top = row * _cellHeight;
@@ -191,8 +179,8 @@ internal sealed class GridView : Control, IItemsView
         var spacing = (Settings?.CellSpacingPercent ?? _defaultSpacingPercent) / _defaultSpacingPercent;
         var padding = MathF.Max(1, (float)(resources.CellSpacing * spacing));
 
-        // a title can be off, one line, or two when it is allowed to wrap. the cell is measured from whichever it
-        // is, so turning titles off gives the space back rather than leaving a gap where they were.
+        // a title can be off, one line, or two when it is allowed to wrap.
+        // the cell is measured from whichever it is, so turning titles off gives the space back.
         var titleLines = Settings?.ThumbnailTitles == false ? 0 : Settings?.WrapThumbnailTitles == true ? _wrappedTitleLines : 1;
         var labelHeight = resources.LabelHeight * titleLines;
 
@@ -249,7 +237,7 @@ internal sealed class GridView : Control, IItemsView
         bool streamItems)
     {
         var cell = new D2D_RECT_F { left = x, top = y, right = x + _cellWidth, bottom = y + _cellHeight };
-        if (position == SelectedPosition || position == _hoverPosition)
+        if (Selection.Contains(position) || position == _hoverPosition)
         {
             var inset = new D2D_RECT_F
             {
@@ -260,7 +248,7 @@ internal sealed class GridView : Control, IItemsView
             };
 
             var radius = _selectionRadius * _scale;
-            var brush = position == SelectedPosition ? resources.SelectionBrush : resources.HoverBrush;
+            var brush = Selection.Contains(position) ? resources.SelectionBrush : resources.HoverBrush;
             deviceContext.Object.FillRoundedRectangle(new D2D1_ROUNDED_RECT { rect = inset, radiusX = radius, radiusY = radius }, brush.Object);
         }
 
@@ -294,7 +282,7 @@ internal sealed class GridView : Control, IItemsView
             bottom = y + padding * 2 + iconSize + labelHeight,
         };
 
-        var brushForName = resources.NameBrush(entry, position == SelectedPosition);
+        var brushForName = resources.NameBrush(entry, Selection.Contains(position));
         var format = Settings?.WrapThumbnailTitles == true ? resources.CenterWrapFormat : resources.CenterFormat;
         TextDrawing.Draw(deviceContext, name, format, labelRect, brushForName);
     }
