@@ -97,16 +97,20 @@ internal sealed class RenderResources : IDisposable
         captionSample.Object.GetMetrics(out var captionMetrics);
         CaptionCharacterWidth = MathF.Max(1, captionMetrics.width / _widthSample.Length);
 
-        PaneBackgroundBrush = deviceContext.CreateSolidColorBrush(Theme.PaneBackground);
+        var translucent = settings.Backdrop != Backdrop.None;
+        var wash = Theme.WashFor(settings.Backdrop);
+        PaneBackgroundBrush = deviceContext.CreateSolidColorBrush(translucent ? wash.Pane : Theme.PaneBackground);
+        ListBackgroundBrush = deviceContext.CreateSolidColorBrush(translucent ? wash.List : Theme.Background);
         SplitterBrush = deviceContext.CreateSolidColorBrush(Theme.Splitter);
         SplitterHotBrush = deviceContext.CreateSolidColorBrush(Theme.SplitterHot);
         BarTrackBrush = deviceContext.CreateSolidColorBrush(Theme.BarTrack);
         BarFillBrush = deviceContext.CreateSolidColorBrush(Theme.BarFill);
         BarFillLowBrush = deviceContext.CreateSolidColorBrush(Theme.BarFillLow);
-        HeaderBackgroundBrush = deviceContext.CreateSolidColorBrush(Theme.HeaderBackground);
+        HeaderBackgroundBrush = deviceContext.CreateSolidColorBrush(translucent ? wash.Header : Theme.HeaderBackground);
         HeaderTextBrush = deviceContext.CreateSolidColorBrush(Theme.HeaderText);
         TextBrush = deviceContext.CreateSolidColorBrush(settings.Text);
         DimTextBrush = deviceContext.CreateSolidColorBrush(Theme.DimText);
+        DisabledTextBrush = deviceContext.CreateSolidColorBrush(Theme.DisabledText);
         FolderTextBrush = deviceContext.CreateSolidColorBrush(Theme.FolderText);
         HiddenTextBrush = deviceContext.CreateSolidColorBrush(Theme.HiddenText);
         HiddenFolderBrush = deviceContext.CreateSolidColorBrush(Theme.HiddenFolderText);
@@ -116,7 +120,7 @@ internal sealed class RenderResources : IDisposable
         HoverBrush = deviceContext.CreateSolidColorBrush(Theme.Hover);
         LineBrush = deviceContext.CreateSolidColorBrush(Theme.Line);
         ScrollbarBrush = deviceContext.CreateSolidColorBrush(Theme.Scrollbar);
-        OverlayBackgroundBrush = deviceContext.CreateSolidColorBrush(Theme.OverlayBackground);
+        OverlayBackgroundBrush = deviceContext.CreateSolidColorBrush(translucent ? Theme.OverlayBackgroundOnMaterial : Theme.OverlayBackground);
         OverlayTextBrush = deviceContext.CreateSolidColorBrush(Theme.OverlayText);
         GoodBrush = deviceContext.CreateSolidColorBrush(Theme.Good);
         BadBrush = deviceContext.CreateSolidColorBrush(Theme.Bad);
@@ -194,6 +198,7 @@ internal sealed class RenderResources : IDisposable
     public IComObject<IDWriteTextFormat> HeaderFormat { get; }
     public IComObject<IDWriteTextFormat> OverlayFormat { get; }
 
+    public IComObject<ID2D1Brush> ListBackgroundBrush { get; }
     public IComObject<ID2D1Brush> PaneBackgroundBrush { get; }
     public IComObject<ID2D1Brush> SplitterBrush { get; }
     public IComObject<ID2D1Brush> SplitterHotBrush { get; }
@@ -204,6 +209,8 @@ internal sealed class RenderResources : IDisposable
     public IComObject<ID2D1Brush> HeaderTextBrush { get; }
     public IComObject<ID2D1Brush> TextBrush { get; }
     public IComObject<ID2D1Brush> DimTextBrush { get; }
+
+    public IComObject<ID2D1Brush> DisabledTextBrush { get; }
     public IComObject<ID2D1Brush> FolderTextBrush { get; }
     public IComObject<ID2D1Brush> HiddenTextBrush { get; }
     public IComObject<ID2D1Brush> HiddenFolderBrush { get; }
@@ -255,6 +262,7 @@ internal sealed class RenderResources : IDisposable
         GlyphFormat.Dispose();
         HeaderFormat.Dispose();
         OverlayFormat.Dispose();
+        ListBackgroundBrush.Dispose();
         PaneBackgroundBrush.Dispose();
         SplitterBrush.Dispose();
         SplitterHotBrush.Dispose();
@@ -265,6 +273,7 @@ internal sealed class RenderResources : IDisposable
         HeaderTextBrush.Dispose();
         TextBrush.Dispose();
         DimTextBrush.Dispose();
+        DisabledTextBrush.Dispose();
         FolderTextBrush.Dispose();
         HiddenTextBrush.Dispose();
         HiddenFolderBrush.Dispose();

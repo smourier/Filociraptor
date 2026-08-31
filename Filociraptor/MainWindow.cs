@@ -19,6 +19,18 @@ internal sealed class MainWindow : D3D11SwapChainWindow
     private const int _hoverPreviewDelay = 300;
     private const int _hitSysMenu = 3;
 
+    private const string _personalizeKey = @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
+    private const string _appsUseLightTheme = "AppsUseLightTheme";
+    private const string _colorSetChanged = "ImmersiveColorSet";
+
+    // DirectComposition is Windows 8 and later, and the window's own material is Windows 11 and later.
+    // where there is neither, the swap chain belongs to the window and the material is not offered.
+    private static readonly bool _composed = OperatingSystem.IsWindowsVersionAtLeast(6, 2);
+    private static readonly bool _backdrop = OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22621);
+
+    // the frame follows the look through an attribute documented for Windows 11 and later.
+    private static readonly bool _darkFrame = OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000);
+
     private const int _saveQuietMilliseconds = 1000;
     private const double _minFontSize = 8;
     private const double _maxFontSize = 22;
@@ -45,6 +57,9 @@ internal sealed class MainWindow : D3D11SwapChainWindow
     private readonly Stack<string> _forward = [];
     private readonly ImagePreview _preview = new();
     private readonly ShellDropTarget _dropTarget;
+    private IComObject<IDCompositionDevice>? _compositionDevice;
+    private IComObject<IDCompositionTarget>? _compositionTarget;
+    private IComObject<IDCompositionVisual>? _compositionVisual;
     private readonly Timer _hoverTimer;
     private readonly Timer _saveTimer;
     private readonly PerfOverlay _overlay = new();
@@ -85,8 +100,8 @@ internal sealed class MainWindow : D3D11SwapChainWindow
     private bool _repaintOwed;
     private bool _imagesReady;
     private bool _savePending;
-    private int _appearance;
-    private int _builtAppearance = -1;
+    private int _revision;
+    private int _builtRevision = -1;
     private float _restoreScroll;
     private int _restoreSelection = -1;
 
@@ -99,6 +114,13 @@ internal sealed class MainWindow : D3D11SwapChainWindow
 
     // every change comes through here, and the write happens once the changes stop. set while the window is being put where it belongs, before it is ever shown.
     internal bool IsPlacing { get; set; }
+
+    private bool Dark => _settings.Appearance switch
+    {
+        Appearance.Dark => true,
+        Appearance.Light => false,
+        _ => SystemIsDark(),
+    };
 
     // a modal control, the menu while it is up, is over everything and takes every message on its own.
     private Control? Modal
@@ -183,7 +205,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
     }
 
     public MainWindow(Settings settings)
-        : base(_title, WINDOW_STYLE.WS_OVERLAPPEDWINDOW)
+        : base(_title, WINDOW_STYLE.WS_OVERLAPPEDWINDOW, _backdrop ? WINDOW_EX_STYLE.WS_EX_NOREDIRECTIONBITMAP : 0)
     {
         _settings = settings;
         _zoom = Math.Clamp((float)settings.Zoom, _minZoom, _maxZoom);
@@ -200,6 +222,8 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         _titleBar.SettingsPressed = OnSettingsPressed;
         _titleBar.ZoomPressed = OnZoomPressed;
         _menu.Changed = OnSettingChanged;
+        ApplyAppearance();
+
         _dropTarget = new ShellDropTarget(DropTargetAt);
         Functions.RegisterDragDrop(Handle, _dropTarget);
         _menu.Closed = DismissPreview;
@@ -306,7 +330,19 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         using var dxgiDevice = _device!.As<IDXGIDevice>()!;
         using var deviceAdapter = dxgiDevice.GetAdapter();
         using var factory2 = deviceAdapter.GetFactory2();
-        if (factory2 != null)
+        if (_composed && factory2 != null)
+        {
+            // a composition swap chain is not attached to a window, so it has to be told its own size.
+            var client = ClientRect.Size;
+            desc.Width = (uint)Math.Max(8, client.cx);
+            desc.Height = (uint)Math.Max(8, client.cy);
+            desc.AlphaMode = _backdrop ? DXGI_ALPHA_MODE.DXGI_ALPHA_MODE_PREMULTIPLIED : DXGI_ALPHA_MODE.DXGI_ALPHA_MODE_IGNORE;
+
+            using var dxgiDevice1 = _device.As<IDXGIDevice1>()!;
+            _swapChain = factory2.CreateSwapChainForComposition<IDXGISwapChain1>(dxgiDevice1, desc);
+            CreateComposition();
+        }
+        else if (factory2 != null)
         {
             try
             {
@@ -360,6 +396,115 @@ internal sealed class MainWindow : D3D11SwapChainWindow
             : D3D11Functions.D3D11CreateDevice(null!, D3D_DRIVER_TYPE.D3D_DRIVER_TYPE_HARDWARE, flags, out context);
     }
 
+    private void ApplyBackdrop() => SetSystemBackdrop(_settings.Backdrop switch
+    {
+        Backdrop.Acrylic => DWM_SYSTEMBACKDROP_TYPE.DWMSBT_TRANSIENTWINDOW,
+        Backdrop.Mica => DWM_SYSTEMBACKDROP_TYPE.DWMSBT_MAINWINDOW,
+        _ => DWM_SYSTEMBACKDROP_TYPE.DWMSBT_NONE,
+    });
+
+    private unsafe void SetDarkMode(bool dark)
+    {
+        var value = dark ? 1 : 0;
+        Functions.DwmSetWindowAttribute(Handle, (uint)DWMWINDOWATTRIBUTE.DWMWA_USE_IMMERSIVE_DARK_MODE, (nint)(&value), 4);
+    }
+
+    private static bool SystemIsDark()
+    {
+        using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(_personalizeKey);
+        return key?.GetValue(_appsUseLightTheme) is int light && light == 0;
+    }
+
+    private void ApplyAppearance()
+    {
+        var dark = Dark;
+        Theme.Use(dark);
+        if (_darkFrame)
+        {
+            SetDarkMode(dark);
+        }
+
+        if (_backdrop)
+        {
+            ApplyBackdrop();
+        }
+    }
+
+    private static string NameOf(Appearance appearance) => appearance switch
+    {
+        Appearance.Dark => Res.ThemeDark,
+        Appearance.Light => Res.ThemeLight,
+        _ => Res.ThemeSystem,
+    };
+
+    private IReadOnlyList<MenuEntry> AppearanceEntries()
+    {
+        var entries = new List<MenuEntry>();
+        foreach (var value in Enum.GetValues<Appearance>())
+        {
+            var chosen = value;
+            entries.Add(new MenuEntry
+            {
+                Label = NameOf(chosen),
+                Kind = MenuEntryKind.Toggle,
+                Checked = () => _settings.Appearance == chosen,
+                Invoked = () =>
+                {
+                    _settings.Appearance = chosen;
+                    ApplyAppearance();
+                },
+            });
+        }
+
+        return entries;
+    }
+
+    private bool Translucent => _backdrop && _composed && _settings.Backdrop != Backdrop.None;
+
+    private unsafe void SetSystemBackdrop(DWM_SYSTEMBACKDROP_TYPE type)
+    {
+        var value = (int)type;
+        Functions.DwmSetWindowAttribute(Handle, (uint)DWMWINDOWATTRIBUTE.DWMWA_SYSTEMBACKDROP_TYPE, (nint)(&value), 4);
+    }
+
+    protected override bool OnResized(WindowResizedType type, SIZE size)
+    {
+        var resized = base.OnResized(type, size);
+        if (_compositionVisual != null && _swapChain != null)
+        {
+            _compositionVisual.Object.SetContent(_swapChain.ToComInstanceNoAddRef());
+            _compositionDevice?.Object.Commit();
+        }
+
+        return resized;
+    }
+
+    private void CreateComposition()
+    {
+        using var dxgiDevice = _device!.As<IDXGIDevice>()!;
+        var iid = typeof(IDCompositionDevice).GUID;
+        var created = Functions.DCompositionCreateDevice(dxgiDevice.Object, iid, out var unknown);
+        if (created.IsError || unknown == 0)
+        {
+            Application.TraceError($"no composition device: {created}.");
+            return;
+        }
+
+        _compositionDevice = DirectN.Extensions.Com.ComObject.FromPointer<IDCompositionDevice>(unknown);
+        if (_compositionDevice == null)
+            return;
+
+        _compositionDevice.Object.CreateTargetForHwnd(Handle, true, out var target).ThrowOnError();
+        _compositionTarget = new ComObject<IDCompositionTarget>(target);
+
+        _compositionDevice.Object.CreateVisual(out var visual).ThrowOnError();
+        _compositionVisual = new ComObject<IDCompositionVisual>(visual);
+
+        _compositionVisual.Object.SetContent(_swapChain.ToComInstanceNoAddRef()).ThrowOnError();
+        _compositionTarget.Object.SetRoot(_compositionVisual.Object).ThrowOnError();
+        _compositionDevice.Object.Commit().ThrowOnError();
+    }
+
     // there is no IDXGIFactory2 before Windows 8.
     private static IComObject<IDXGISwapChain1> CreateOlderSwapChain(IComObject<IDXGIAdapter> adapter, IComObject<ID3D11Device> device, HWND hwnd)
     {
@@ -382,6 +527,10 @@ internal sealed class MainWindow : D3D11SwapChainWindow
     {
         base.DisposeDeviceResources();
 
+        Interlocked.Exchange(ref _compositionVisual, null)?.Dispose();
+        Interlocked.Exchange(ref _compositionTarget, null)?.Dispose();
+        Interlocked.Exchange(ref _compositionDevice, null)?.Dispose();
+
         var context = Interlocked.Exchange(ref _d3dContext, null);
         if (context != null)
         {
@@ -393,7 +542,12 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         var swapChain = Interlocked.Exchange(ref _swapChain, null);
         if (swapChain != null)
         {
-            swapChain.SetFullscreenState(false);
+            // a swap chain made for a composition visual has no window to go fullscreen on
+            if (!_composed)
+            {
+                swapChain.SetFullscreenState(false);
+            }
+
             swapChain.Dispose();
         }
 
@@ -451,7 +605,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
             pixelFormat = new D2D1_PIXEL_FORMAT
             {
                 format = DXGI_FORMAT.DXGI_FORMAT_B8G8R8A8_UNORM,
-                alphaMode = D2D1_ALPHA_MODE.D2D1_ALPHA_MODE_IGNORE,
+                alphaMode = _backdrop ? D2D1_ALPHA_MODE.D2D1_ALPHA_MODE_PREMULTIPLIED : D2D1_ALPHA_MODE.D2D1_ALPHA_MODE_IGNORE,
             },
             dpiX = Constants.USER_DEFAULT_SCREEN_DPI,
             dpiY = Constants.USER_DEFAULT_SCREEN_DPI,
@@ -477,12 +631,12 @@ internal sealed class MainWindow : D3D11SwapChainWindow
             return;
 
         // a monitor change or a zoom change means new metrics, the text formats are sized in pixels.
-        if (Math.Abs(resources.DpiScale - DpiScale * _zoom) > float.Epsilon || _appearance != _builtAppearance)
+        if (Math.Abs(resources.DpiScale - DpiScale * _zoom) > float.Epsilon || _revision != _builtRevision)
         {
             resources.Dispose();
             resources = new RenderResources(context, DpiScale, _zoom, _settings);
             _resources = resources;
-            _builtAppearance = _appearance;
+            _builtRevision = _revision;
         }
 
         _counters.BeginFrame();
@@ -518,7 +672,15 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         var moreImages = _images?.Upload(context) == true;
 
         context.BeginDraw();
-        context.Clear(Theme.Background);
+        var translucent = Translucent;
+        context.Clear(translucent ? new D3DCOLORVALUE() : Theme.Background);
+        if (translucent)
+        {
+            // a wash over the material rather than a colour on top of it,
+            // so the rows stay readable while what is behind the window still shows through them.
+            context.FillRectangle(view.Bounds, resources.ListBackgroundBrush);
+        }
+
         _places.Render(context, resources, _images);
         context.FillRectangle(_splitterBounds, _splitterHot || _splitterDragging ? resources.SplitterHotBrush : resources.SplitterBrush);
         if (_images != null)
@@ -1274,6 +1436,15 @@ internal sealed class MainWindow : D3D11SwapChainWindow
                 SetHotButton(0);
                 break;
 
+            case MessageDecoder.WM_WININICHANGE:
+                if (_settings.Appearance == Appearance.System && Marshal.PtrToStringUni(lParam.Value) == _colorSetChanged)
+                {
+                    ApplyAppearance();
+                    _revision++;
+                    RenderNow();
+                }
+                break;
+
             case MessageDecoder.WM_EXITSIZEMOVE:
                 ScheduleSave();
                 break;
@@ -1762,8 +1933,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
     private static float LowWord(LPARAM value) => (short)(value.Value & 0xFFFF);
     private static float HighWord(LPARAM value) => (short)((value.Value >> 16) & 0xFFFF);
 
-    // the menu is dismissed from several places, a click outside it, the caption, losing activation,
-    // so it is one call rather than the same three lines each time.
     private void DismissMenu()
     {
         if (!_menu.IsOpen)
@@ -1773,7 +1942,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         RenderNow();
     }
 
-    // the same menu the gear uses, with the sizes anyone would want, hung under the zoom rather than the gear.
     private void OnZoomPressed()
     {
         if (_menu.IsOpen)
@@ -1831,7 +1999,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
 
     private void OnSettingChanged()
     {
-        _appearance++;
+        _revision++;
         ScheduleSave();
         RenderNow();
     }
@@ -1868,7 +2036,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         {
             Label = Res.SettingTextColor,
             Kind = MenuEntryKind.Color,
-            Value = () => _settings.TextColor,
+            Value = () => _settings.Text.HtmlString,
             Invoked = PickTextColor,
         },
         new MenuEntry
@@ -1896,6 +2064,21 @@ internal sealed class MainWindow : D3D11SwapChainWindow
                 ShowPreviewSample();
             },
             Value = () => _settings.PreviewPercent <= 0 ? Res.SettingOff : _settings.PreviewPercent.ToString("0") + " %",
+        },
+        new MenuEntry
+        {
+            Label = Res.SettingTheme,
+            Kind = MenuEntryKind.Choice,
+            Value = () => NameOf(_settings.Appearance),
+            Children = AppearanceEntries,
+        },
+        new MenuEntry
+        {
+            Label = Res.SettingBackdrop,
+            Kind = MenuEntryKind.Choice,
+            Value = () => NameOf(_settings.Backdrop),
+            Children = BackdropEntries,
+            Enabled = () => _backdrop && _composed,
         },
         MenuEntry.Separator,
         Toggle(Res.SettingSquareThumbnails, () => _settings.SquareThumbnails, value => _settings.SquareThumbnails = value),
@@ -1926,6 +2109,35 @@ internal sealed class MainWindow : D3D11SwapChainWindow
             ClosesMenu = true,
         },
     ];
+
+    private static string NameOf(Backdrop backdrop) => backdrop switch
+    {
+        Backdrop.Acrylic => Res.BackdropAcrylic,
+        Backdrop.Mica => Res.BackdropMica,
+        _ => Res.BackdropNone,
+    };
+
+    private List<MenuEntry> BackdropEntries()
+    {
+        var entries = new List<MenuEntry>();
+        foreach (var value in Enum.GetValues<Backdrop>())
+        {
+            var chosen = value;
+            entries.Add(new MenuEntry
+            {
+                Label = NameOf(chosen),
+                Kind = MenuEntryKind.Toggle,
+                Checked = () => _settings.Backdrop == chosen,
+                Invoked = () =>
+                {
+                    _settings.Backdrop = chosen;
+                    ApplyBackdrop();
+                },
+            });
+        }
+
+        return entries;
+    }
 
     private List<MenuEntry> FontEntries()
     {

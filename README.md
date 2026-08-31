@@ -57,6 +57,8 @@ Everything is measured in device independent units and turned into pixels once, 
 * shows or hides hidden and protected operating system files, faded rather than merely listed.
 * a large view of any image WIC can decode, on hover.
 * global zoom, sortable columns, keyboard navigation, and its own title bar, with the buttons, the column headers and the rows lighting up under the pointer.
+* light or dark, following the system setting or held to one of them. Two palettes, and everything moves together, the listing, the left pane, the title bar, the menus and the hover preview.
+* the window itself is a colour, or a material. Mica is a flat tint of the wallpaper, acrylic is whatever is behind the window, blurred. The listing keeps enough of itself for the rows to stay readable and the chrome keeps more. Both materials want Windows 11, and a colour is the default, because a material costs the text its subpixel antialiasing.
 * follows the monitor it is on. It is per monitor v2 aware, so the text, the icons and the title bar are drawn at the scaling of the screen the window is on, and they change with it when the window is dragged to a screen with different scaling, or when that scaling is changed under it. The zoom is a separate thing that multiplies the listing on top of that.
 
 ### Choosing and moving
@@ -75,7 +77,7 @@ Everything is measured in device independent units and turned into pixels once, 
 
 ### What it remembers
 
-* remembers what you change. The gear in the title bar opens a menu for the font and its size, the colour of the text, the space around thumbnails, whether they are square, their titles and the wrapping of them, the size of the hover preview, and the folders you have been to, with a sweep for the ones that are no longer there.
+* remembers what you change. The gear in the title bar opens a menu for the font and its size, the colour of the text, the theme and what the window is made of, the space around thumbnails, whether they are square, their titles and the wrapping of them, the size of the hover preview, and the folders you have been to, with a sweep for the ones that are no longer there.
 * comes back where it was. The same monitor, the same size and position, the same zoom, maximized if it was, and on the folder it was last showing. The settings are one readable file, beside the executable when there is one there, which is what makes a copied folder portable, and in your profile otherwise.
 
 ## What it does not do
@@ -99,6 +101,7 @@ Where something is missing, it is asked for once and given up on rather than ass
 * the flip presentation model is Windows 10 and later. Without it the swap chain is the older kind that copies, made the older way, since there is no IDXGIFactory2 before Windows 8 either.
 * per monitor scaling is Windows 8.1 and later. Without it the window follows the system setting, which is what Windows 7 has.
 * archives are shown as folders the way Windows 11 does it. On Windows 10 and earlier that option is there and greyed.
+* acrylic and mica are Windows 11 22H2 and later. Earlier, the choice is there and greyed.
 
 **It also runs where there is no 3D adapter at all.** A display adapter with no Direct3D behind it is enough to stop most DirectX programs before they draw anything,
 and depending on the host, the guest and what is shared between them, a virtual machine or a sandbox can present exactly that.
@@ -136,6 +139,7 @@ The drives and the places you can go on the left, the listing on the right, and 
 | details, small, medium and large icons, thumbnails | the slider, or `Ctrl` with `1` to `5` |
 | zoom text, icons and thumbnails together | `Ctrl` with the wheel |
 | the settings, and the folders you have been to | the gear in the title bar |
+| light or dark, and what the window is made of | the gear in the title bar |
 | pick a zoom, or reset it | click the percentage in the title bar |
 | open an archive as a folder, or as a file | it is a folder by default, the settings turn it into a file |
 | choose several items | `Ctrl` click for one more, `Shift` click for everything between, `Ctrl+A` for all |
@@ -211,9 +215,15 @@ Square, no titles, no spacing at all and zoomed out to half. A hundred and forty
 
 ### The settings
 
-The gear in the title bar. The font and its size, the colour of the text, the room around thumbnails, the size of the hover preview, what a thumbnail shows, how archives open, and the folders you have been to. All of it is written to one readable file.
+The gear in the title bar. The font and its size, the colour of the text, the theme and the window material, the room around thumbnails, the size of the hover preview, what a thumbnail shows, how archives open, and the folders you have been to. All of it is written to one readable file.
 
 ![The settings](docs/settings.jpg)
+
+### A window made of acrylic
+
+Acrylic takes what is behind the window and blurs it, mica takes the wallpaper and tints it flat. Neither is on unless it is asked for.
+
+![A window made of acrylic](docs/acrylic.png)
 
 ### The zoom
 

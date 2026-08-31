@@ -61,6 +61,33 @@ namespace Filociraptor {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Acrylic.
+        /// </summary>
+        internal static string BackdropAcrylic {
+            get {
+                return ResourceManager.GetString("BackdropAcrylic", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Mica.
+        /// </summary>
+        internal static string BackdropMica {
+            get {
+                return ResourceManager.GetString("BackdropMica", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to None.
+        /// </summary>
+        internal static string BackdropNone {
+            get {
+                return ResourceManager.GetString("BackdropNone", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Modified.
         /// </summary>
         internal static string ColumnModified {
@@ -183,6 +210,15 @@ namespace Filociraptor {
         internal static string Folder {
             get {
                 return ResourceManager.GetString("Folder", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Window material.
+        /// </summary>
+        internal static string SettingBackdrop {
+            get {
+                return ResourceManager.GetString("SettingBackdrop", resourceCulture);
             }
         }
         
@@ -313,6 +349,15 @@ namespace Filociraptor {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Theme.
+        /// </summary>
+        internal static string SettingTheme {
+            get {
+                return ResourceManager.GetString("SettingTheme", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Thumbnail spacing.
         /// </summary>
         internal static string SettingThumbnailSpacing {
@@ -336,6 +381,33 @@ namespace Filociraptor {
         internal static string SettingWrapThumbnailTitles {
             get {
                 return ResourceManager.GetString("SettingWrapThumbnailTitles", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Dark.
+        /// </summary>
+        internal static string ThemeDark {
+            get {
+                return ResourceManager.GetString("ThemeDark", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Light.
+        /// </summary>
+        internal static string ThemeLight {
+            get {
+                return ResourceManager.GetString("ThemeLight", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Use system.
+        /// </summary>
+        internal static string ThemeSystem {
+            get {
+                return ResourceManager.GetString("ThemeSystem", resourceCulture);
             }
         }
         

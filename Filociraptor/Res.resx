@@ -225,4 +225,28 @@
   <data name="SettingThumbnailSpacing" xml:space="preserve">
     <value>Thumbnail spacing</value>
   </data>
+  <data name="SettingBackdrop" xml:space="preserve">
+    <value>Window material</value>
+  </data>
+  <data name="BackdropNone" xml:space="preserve">
+    <value>None</value>
+  </data>
+  <data name="BackdropAcrylic" xml:space="preserve">
+    <value>Acrylic</value>
+  </data>
+  <data name="BackdropMica" xml:space="preserve">
+    <value>Mica</value>
+  </data>
+  <data name="SettingTheme" xml:space="preserve">
+    <value>Theme</value>
+  </data>
+  <data name="ThemeSystem" xml:space="preserve">
+    <value>Use system</value>
+  </data>
+  <data name="ThemeDark" xml:space="preserve">
+    <value>Dark</value>
+  </data>
+  <data name="ThemeLight" xml:space="preserve">
+    <value>Light</value>
+  </data>
 </root>

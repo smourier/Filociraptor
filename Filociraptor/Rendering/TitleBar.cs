@@ -319,7 +319,7 @@ internal sealed class TitleBar : Control
         resources.FillHover(deviceContext, rect, hover.Opacity, radius);
 
         Span<char> buffer = [glyph];
-        TextDrawing.Draw(deviceContext, buffer, resources.CaptionGlyphFormat, rect, enabled ? resources.TextBrush : resources.LineBrush);
+        TextDrawing.Draw(deviceContext, buffer, resources.CaptionGlyphFormat, rect, enabled ? resources.TextBrush : resources.DisabledTextBrush);
     }
 
     private void DrawGear(IComObject<ID2D1DeviceContext> deviceContext, RenderResources resources)
