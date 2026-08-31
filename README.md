@@ -2,7 +2,7 @@
 
 A fast Windows file manager in 100% pure C#, DirectX, Direct2D and NativeAOT for x86, x64 and ARM64.
 
-The published **standalone** executable is 9.5 MB (2.8 MB with UPX) and needs nothing to be installed.
+The published **standalone** executable is 9.5 MB (2.9 MB with UPX) and needs nothing to be installed.
 
 <img width="256" src="Filociraptor.png" />
 
@@ -80,13 +80,6 @@ Everything is measured in device independent units and turned into pixels once, 
 * remembers what you change. The gear in the title bar opens a menu for the font and its size, the colour of the text, the theme and what the window is made of, the space around thumbnails, whether they are square, their titles and the wrapping of them, the size of the hover preview, and the folders you have been to, with a sweep for the ones that are no longer there.
 * comes back where it was. The same monitor, the same size and position, the same zoom, maximized if it was, and on the folder it was last showing. The settings are one readable file, beside the executable when there is one there, which is what makes a copied folder portable, and in your profile otherwise.
 
-## What it does not do
-
-* no rename and no new folder. The context menu can do both, because that menu is Explorer's, not ours.
-* no address bar, no typing or pasting a path, and no search.
-* no tabs and no favourites.
-* no accessibility. Everything is custom drawn, so a screen reader sees an empty window.
-
 ## Where it runs
 
 Windows 7 SP1 and later, on x86, x64 and ARM64.
@@ -108,18 +101,21 @@ and depending on the host, the guest and what is shared between them, a virtual 
 The device is asked of the display adapter first and of the rasterizer that comes with Windows secondly, so where there is nothing to draw with, it draws in software,
 and says so in its trace rather than being quietly slow. It has been run in Hyper-V (Windows 7+) and in Windows Sandbox.
 
+## What it does not do
+
+* no rename and no new folder. The context menu can do both, because that menu is Explorer's, not ours.
+* no address bar, no typing or pasting a path, and no search.
+* no tabs and no favourites.
+* no accessibility. Everything is custom drawn, so a screen reader sees an empty window.
+
 ## Where it could go
 
 None of the above is blocked by anything structural. The gap between this and something you would use every day is ordinary work, not research, 
-because the hard parts are already solved by three libraries that between them cover everything Windows can do here:
+because the hard parts are already solved by three libraries that between them cover mostly everything Windows can do here:
 
 * [DirectN](https://github.com/smourier/DirectNAot) gives the whole of DirectX, Direct2D, DirectWrite and Win32, ahead of time compiled and without a wrapper in the way.
 * [ShellN](https://github.com/smourier/ShellBat) gives the shell itself, so the namespace, the property system, context menus, drag and drop and file operations are all reachable.
 * [WicNet](https://github.com/smourier/WicNet) gives every image format Windows can decode.
-
-The namespace was the first of these steps, and choosing several things, moving them about and deleting them followed it.
-What is left is renaming, which needs somewhere to type rather than anything from the shell, a new folder, and an address bar.
-At that point the word demonstration stops applying.
 
 ## Using it
 
