@@ -29,6 +29,7 @@ internal static class Program
     private static void RunWindow(Settings settings, string path, string? position)
     {
         using var app = new Application();
+        DragDrop.Initialize();
 
         // makes every await in the navigation pipeline come back on the UI thread through the message queue.
         WindowSynchronizationContext.Install();

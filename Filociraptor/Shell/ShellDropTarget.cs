@@ -2,17 +2,15 @@
 
 namespace Filociraptor.Shell;
 
-// nothing is copied or moved here, it is handed to the shell's own drop target for the folder underneath,
-// so the feedback, the menu on a right drag and the operation itself are the ones Explorer would have given.
-// that folder is asked for on every move, because dragging across the listing changes what a drop lands on.
+// nothing is copied or moved here, it is handed to the shell's own drop target for the folder underneath.
 [GeneratedComClass]
-internal sealed partial class ShellDropTarget(Func<POINTL, ShellItem?> targetAt) : DirectN.IDropTarget, IDisposable
+internal sealed partial class ShellDropTarget(Func<POINTL, ShellItem?> targetAt) : IDropTarget, IDisposable
 {
-    private IComObject<DirectN.IDropTarget>? _current;
+    private IComObject<IDropTarget>? _current;
     private ShellItem? _currentItem;
-    private DirectN.IDataObject? _data;
+    private IDataObject? _data;
 
-    public HRESULT DragEnter(DirectN.IDataObject pDataObj, MODIFIERKEYS_FLAGS grfKeyState, POINTL pt, ref DROPEFFECT pdwEffect)
+    public HRESULT DragEnter(IDataObject pDataObj, MODIFIERKEYS_FLAGS grfKeyState, POINTL pt, ref DROPEFFECT pdwEffect)
     {
         _data = pDataObj;
         return Retarget(pt, grfKeyState, ref pdwEffect);
@@ -31,10 +29,10 @@ internal sealed partial class ShellDropTarget(Func<POINTL, ShellItem?> targetAt)
     {
         Release();
         _data = null;
-        return DirectN.Constants.S_OK;
+        return Constants.S_OK;
     }
 
-    public HRESULT Drop(DirectN.IDataObject pDataObj, MODIFIERKEYS_FLAGS grfKeyState, POINTL pt, ref DROPEFFECT pdwEffect)
+    public HRESULT Drop(IDataObject pDataObj, MODIFIERKEYS_FLAGS grfKeyState, POINTL pt, ref DROPEFFECT pdwEffect)
     {
         _data = pDataObj;
         var moved = Retarget(pt, grfKeyState, ref pdwEffect);
@@ -42,7 +40,7 @@ internal sealed partial class ShellDropTarget(Func<POINTL, ShellItem?> targetAt)
         {
             pdwEffect = DROPEFFECT.DROPEFFECT_NONE;
             Release();
-            return DirectN.Constants.S_OK;
+            return Constants.S_OK;
         }
 
         var target = _current;
@@ -67,22 +65,22 @@ internal sealed partial class ShellDropTarget(Func<POINTL, ShellItem?> targetAt)
         if (item != null && _currentItem != null && item.Equals(_currentItem))
         {
             item.Dispose();
-            return DirectN.Constants.S_OK;
+            return Constants.S_OK;
         }
 
         Release();
         if (item == null || _data == null)
         {
             effect = DROPEFFECT.DROPEFFECT_NONE;
-            return DirectN.Constants.S_OK;
+            return Constants.S_OK;
         }
 
         _currentItem = item;
-        _current = item.BindToHandler<DirectN.IDropTarget>(ShellN.Constants.BHID_SFUIObject);
+        _current = item.BindToHandler<IDropTarget>(ShellN.Constants.BHID_SFUIObject);
         if (_current == null)
         {
             effect = DROPEFFECT.DROPEFFECT_NONE;
-            return DirectN.Constants.S_OK;
+            return Constants.S_OK;
         }
 
         return _current.Object.DragEnter(_data, keys, pt, ref effect);

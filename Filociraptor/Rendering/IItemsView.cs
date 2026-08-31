@@ -35,8 +35,7 @@ internal interface IItemsView
         EnsureVisible(clamped);
     }
 
-    // with shift it is everything from the anchor, with control it is this one added or taken away,
-    // and with neither it is this one alone.
+    // with shift it is everything from the anchor, with control it is this one added or taken away, and with neither it is this one alone.
     void SelectAt(int position)
     {
         var count = Items?.Count ?? 0;
@@ -50,6 +49,10 @@ internal interface IItemsView
         else if (Keyboard.IsControlDown)
         {
             Selection.Toggle(position);
+        }
+        else if (Selection.Count > 1 && Selection.Contains(position))
+        {
+            Selection.Defer(position);
         }
         else
         {

@@ -8,8 +8,7 @@ namespace Filociraptor.Shell;
 // so its children are exactly that list, with the Desktop node itself left out because it is the thing they all hang from.
 internal static class PlacesScanner
 {
-    public static async Task<IReadOnlyList<PlaceEntry>> ScanAsync(CancellationToken cancellationToken) =>
-        await Task.Run(Enumerate, cancellationToken).ConfigureAwait(true);
+    public static async Task<IReadOnlyList<PlaceEntry>> ScanAsync(CancellationToken cancellationToken) => await Task.Run(Enumerate, cancellationToken).ConfigureAwait(true);
 
     private static List<PlaceEntry> Enumerate()
     {

@@ -59,6 +59,13 @@ Everything is measured in device independent units and turned into pixels once, 
 * global zoom, sortable columns, keyboard navigation, and its own title bar, with the buttons, the column headers and the rows lighting up under the pointer.
 * follows the monitor it is on. It is per monitor v2 aware, so the text, the icons and the title bar are drawn at the scaling of the screen the window is on, and they change with it when the window is dragged to a screen with different scaling, or when that scaling is changed under it. The zoom is a separate thing that multiplies the listing on top of that.
 
+### Choosing and moving
+
+* several items at once. A click chooses one, `Ctrl` adds or removes one, `Shift` takes everything between, and `Ctrl+A` takes the lot. A right click on any of them brings up the menu Explorer shows for a set of files rather than for a single one.
+* drag and drop, both ways. What leaves the window is the shell's own data object, so anything that accepts a drop from Explorer accepts one from here. What arrives is handed to the drop target of the folder under the pointer, so the feedback, the menu on a right drag and the copy or move itself are the shell's.
+* copy, cut and paste, marked on the clipboard the way Explorer marks them, so a cut here is a move when it is pasted anywhere.
+* delete, to the recycle bin with `Del` and for good with `Shift+Del`, which the shell asks about first.
+
 ### Opening things
 
 * the real Explorer context menu, with installed handlers appearing in it (ie: where "Share" works), on an item, and on the empty space around them the same menu for the folder you are in.
@@ -73,9 +80,7 @@ Everything is measured in device independent units and turned into pixels once, 
 
 ## What it does not do
 
-* no file operations at all by itself. The context menu can do some of it because that menu is Explorer's, not ours.
-* no drag & drop.
-* no multiple selection, one item at a time.
+* no rename and no new folder. The context menu can do both, because that menu is Explorer's, not ours.
 * no address bar, no typing or pasting a path, and no search.
 * no tabs and no favourites.
 * no accessibility. Everything is custom drawn, so a screen reader sees an empty window.
@@ -109,7 +114,9 @@ because the hard parts are already solved by three libraries that between them c
 * [ShellN](https://github.com/smourier/ShellBat) gives the shell itself, so the namespace, the property system, context menus, drag and drop and file operations are all reachable.
 * [WicNet](https://github.com/smourier/WicNet) gives every image format Windows can decode.
 
-The namespace was the first of these steps and it is done. Multiple selection and file operations are the next two, and both are shell work that ShellN already exposes. After that an address bar, and at that point the word demonstration stops applying.
+The namespace was the first of these steps, and choosing several things, moving them about and deleting them followed it.
+What is left is renaming, which needs somewhere to type rather than anything from the shell, a new folder, and an address bar.
+At that point the word demonstration stops applying.
 
 ## Using it
 
@@ -131,6 +138,10 @@ The drives and the places you can go on the left, the listing on the right, and 
 | the settings, and the folders you have been to | the gear in the title bar |
 | pick a zoom, or reset it | click the percentage in the title bar |
 | open an archive as a folder, or as a file | it is a folder by default, the settings turn it into a file |
+| choose several items | `Ctrl` click for one more, `Shift` click for everything between, `Ctrl+A` for all |
+| copy, cut, paste | `Ctrl+C`, `Ctrl+X`, `Ctrl+V` |
+| delete to the recycle bin, or for good | `Del`, `Shift+Del` |
+| take items somewhere else | drag them, from anywhere in the selection |
 | rescan now | `F5` |
 | show the performance overlay | `F12` |
 

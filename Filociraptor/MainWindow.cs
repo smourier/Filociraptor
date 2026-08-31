@@ -31,6 +31,9 @@ internal sealed class MainWindow : D3D11SwapChainWindow
     private const float _maxZoom = 4;
     private const float _zoomStep = 1.1f;
 
+    private int _pressedPosition = -1;
+    private POINT _pressedPoint;
+
     private readonly Settings _settings;
     private readonly FolderItems _items = new();
     private readonly DetailsView _details = new();
@@ -41,6 +44,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
     private readonly Stack<string> _back = [];
     private readonly Stack<string> _forward = [];
     private readonly ImagePreview _preview = new();
+    private readonly ShellDropTarget _dropTarget;
     private readonly Timer _hoverTimer;
     private readonly Timer _saveTimer;
     private readonly PerfOverlay _overlay = new();
@@ -186,7 +190,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         _grid.Settings = settings;
         _preview.Settings = settings;
         InvalidateOnTick = false;
-        // one selection between the two views, so changing view keeps what was chosen.
         _grid.Selection = _details.Selection;
         _details.ItemActivated = OnItemActivated;
         _details.SortRequested = OnSortRequested;
@@ -197,8 +200,8 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         _titleBar.SettingsPressed = OnSettingsPressed;
         _titleBar.ZoomPressed = OnZoomPressed;
         _menu.Changed = OnSettingChanged;
-
-        // whatever the menu put on screen goes away with it, the sample preview above being the one thing it does.
+        _dropTarget = new ShellDropTarget(DropTargetAt);
+        Functions.RegisterDragDrop(Handle, _dropTarget);
         _menu.Closed = DismissPreview;
         _titleBar.Slider.ModeChanged = mode => Mode = mode;
         _watcher = new FolderWatcher(OnFolderChanged);
@@ -512,7 +515,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         _counters.ItemCount = _items.Count;
         _counters.BufferBytes = _items.BufferBytes;
 
-        // finished shell pixels become device bitmaps here, on the thread that owns the device.
         var moreImages = _images?.Upload(context) == true;
 
         context.BeginDraw();
@@ -536,7 +538,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
 
         _counters.EndFrame();
 
-        // something is still fading, so another frame is owed. when nothing is, the window goes quiet again.
         _repaintOwed = _continuous || resources.Animating || moreImages;
         swapChain.Present(_repaintOwed ? 1u : 0, 0);
 
@@ -583,7 +584,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         }
     }
 
-    // the borders left as non client answer for themselves, only the top edge and the caption are ours.
     private LRESULT HitTest(HWND hwnd, WPARAM wParam, LPARAM lParam)
     {
         var result = DefWindowProc(hwnd, MessageDecoder.WM_NCHITTEST, wParam, lParam);
@@ -611,8 +611,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
     private void RenderNow()
     {
         RenderCore();
-
-        // an immediate frame makes any pending paint redundant, which is why the window is validated here.
         Validate();
         if (_repaintOwed || Volatile.Read(ref _imagesReady))
         {
@@ -627,7 +625,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         _ = _driveNotifier.Start();
     }
 
-    // the places the shell offers, which unlike the drives do not come and go, so they are read once.
     private async Task LoadPlacesAsync()
     {
         var places = await PlacesScanner.ScanAsync(CancellationToken.None).ConfigureAwait(true);
@@ -636,7 +633,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         RenderNow();
     }
 
-    // the shell reports a drive appearing or going away from its own thread.
     private void OnDrivesChanged(object? sender, ChangeNotifyEventArgs e)
     {
         try
@@ -645,7 +641,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
             {
                 _ = LoadDrivesAsync();
 
-                // the listing may have been sitting on the drive that just went away.
                 if (_location.IsFileSystem && !Directory.Exists(_path))
                 {
                     Navigate(_location.ParsingName);
@@ -660,7 +655,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
 
     private async Task LoadDrivesAsync()
     {
-        // a drive arriving while the previous listing is still coming in would otherwise leave the pane with both.
         var previous = _driveScan;
         if (previous != null)
         {
@@ -692,7 +686,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
 
     public void Navigate(string path) => _ = NavigateAsync(path);
 
-    // a place carries the id list it was enumerated with, so it opens through that rather than through a name the shell may refuse to parse back.
     private void OnPlaceActivated(PlaceEntry place)
     {
         using var item = ShellItems.Bind(place.IdList) ?? ShellItems.Parse(place.ParsingName, true);
@@ -776,7 +769,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         Navigate(_forward.Pop());
     }
 
-    // the watcher runs on its own thread, and everything it touches belongs to the UI one.
     private void OnFolderChanged()
     {
         try
@@ -810,7 +802,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
                 break;
 
             case NavigationButton.Hidden:
-                // the enumerator does the filtering, so the folder has to be read again either way.
                 _showHidden = !_showHidden;
                 _titleBar.ShowHidden = _showHidden;
                 Refresh();
@@ -1029,6 +1020,128 @@ internal sealed class MainWindow : D3D11SwapChainWindow
     // Windows 11 hands out an archive as a folder, and this is the option that asks for the file back.
     private bool OpensAsFile(in FileEntry entry) => _settings.OpenArchivesAsFiles && ArchiveExtensions.IsArchive(_items.ExtensionOf(entry));
 
+    private void DeleteSelection(bool permanent)
+    {
+        var chosen = SelectedItems();
+        if (chosen.Count == 0)
+            return;
+
+        try
+        {
+            using var operation = new ShellN.Extensions.Utilities.FileOperation();
+            operation.SetOwnerWindow(Handle);
+            operation.SetOperationFlags(permanent
+                ? ShellN.FILEOPERATION_FLAGS.FOF_NOERRORUI
+                : ShellN.FILEOPERATION_FLAGS.FOF_ALLOWUNDO | ShellN.FILEOPERATION_FLAGS.FOFX_RECYCLEONDELETE);
+
+            operation.DeleteItems(chosen.Select(i => i.NativeObject));
+        }
+        catch (Exception ex)
+        {
+            Application.TraceError($"the {chosen.Count} items could not be deleted: {ex}");
+        }
+        finally
+        {
+            foreach (var item in chosen)
+            {
+                item.Dispose();
+            }
+        }
+    }
+
+    private List<ShellItem> SelectedItems()
+    {
+        var chosen = new List<ShellItem>();
+        foreach (var selected in View.Selection.Positions)
+        {
+            if (selected < 0 || selected >= _items.Count)
+                continue;
+
+            var item = ItemFor(selected);
+            if (item != null)
+            {
+                chosen.Add(item);
+            }
+        }
+
+        return chosen;
+    }
+
+    private ShellItem? DropTargetAt(POINTL pt)
+    {
+        var point = new POINT { x = pt.x, y = pt.y };
+        Functions.ScreenToClient(Handle, ref point);
+        if (Contains(View.Bounds, point.x, point.y))
+        {
+            var position = View.PositionAtPoint(point.x, point.y);
+            if (position >= 0 && position < _items.Count && _items.EntryAt(position).IsDirectory)
+                return ItemFor(position);
+        }
+
+        return _location.Bind();
+    }
+
+    private void RememberPress(float x, float y)
+    {
+        _pressedPosition = -1;
+        if (!Contains(View.Bounds, x, y))
+            return;
+
+        var position = View.PositionAtPoint(x, y);
+        if (position < 0 || !View.Selection.Contains(position))
+            return;
+
+        _pressedPosition = position;
+        _pressedPoint = new POINT { x = (int)x, y = (int)y };
+    }
+
+    // far enough to mean a drag rather than a click, and how far that is belongs to the system.
+    private static bool IsDragDistance(POINT from, POINT to) => Math.Abs(to.x - from.x) >= Functions.GetSystemMetrics(SYSTEM_METRICS_INDEX.SM_CXDRAG) || Math.Abs(to.y - from.y) >= Functions.GetSystemMetrics(SYSTEM_METRICS_INDEX.SM_CYDRAG);
+
+    private void WithSelectedIdLists(Action<IReadOnlyList<ItemIdList>> action)
+    {
+        var chosen = SelectedItems();
+        if (chosen.Count == 0)
+            return;
+
+        var idLists = chosen.Select(i => i.GetIdList(false)).OfType<ItemIdList>().ToArray();
+        try
+        {
+            if (idLists.Length > 0)
+            {
+                action(idLists);
+            }
+        }
+        finally
+        {
+            foreach (var idList in idLists)
+            {
+                idList.Dispose();
+            }
+
+            foreach (var item in chosen)
+            {
+                item.Dispose();
+            }
+        }
+    }
+
+    private void BeginDrag()
+    {
+        View.Selection.Defer(-1);
+        Functions.ReleaseCapture();
+        WithSelectedIdLists(items => DragDrop.Drag(Handle, items, DROPEFFECT.DROPEFFECT_COPY | DROPEFFECT.DROPEFFECT_MOVE | DROPEFFECT.DROPEFFECT_LINK));
+    }
+
+    private void PasteHere()
+    {
+        using var destination = _location.Bind();
+        if (destination == null)
+            return;
+
+        ClipboardOperations.Paste(Handle, destination);
+    }
+
     private ShellItem? ItemFor(int position)
     {
         var bound = ShellItems.Bind(_items.IdListAt(position));
@@ -1104,6 +1217,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
             case MessageDecoder.WM_LBUTTONDOWN:
                 SetFocus();
                 OnMouseDown(LowWord(lParam), HighWord(lParam), false);
+                RememberPress(LowWord(lParam), HighWord(lParam));
                 return new LRESULT();
 
             case MessageDecoder.WM_CONTEXTMENU:
@@ -1115,6 +1229,12 @@ internal sealed class MainWindow : D3D11SwapChainWindow
                 return new LRESULT();
 
             case MessageDecoder.WM_LBUTTONUP:
+                _pressedPosition = -1;
+                if (View.Selection.ApplyDeferred())
+                {
+                    RenderNow();
+                }
+
                 if (RouteMouseUp() | _splitterDragging)
                 {
                     _splitterDragging = false;
@@ -1123,8 +1243,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
                 }
                 return new LRESULT();
 
-            // taking the whole window as client area is what removes the standard caption.
-            // the frame is kept on the other three sides so resizing there still behaves normally.
             case MessageDecoder.WM_NCCALCSIZE:
                 if (wParam.Value != 0)
                 {
@@ -1136,7 +1254,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
                         rect.right -= FrameThickness;
                         rect.bottom -= FrameThickness;
 
-                        // the top edge is kept for the caption we draw ourselves, which works because the frame is composited and the system draws nothing there.
                         if (Functions.IsZoomed(hwnd) || !IsCompositionEnabled)
                         {
                             rect.top += FrameThickness;
@@ -1161,7 +1278,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
                 ScheduleSave();
                 break;
 
-            // clicking another application, or anything else that takes activation away, closes it too.
             case MessageDecoder.WM_ACTIVATE:
                 if ((wParam.Value & 0xFFFF) == 0)
                 {
@@ -1188,7 +1304,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
                 }
                 break;
 
-            // per monitor v2, so a move to a screen with other scaling arrives here with the rectangle the window should take.
             case MessageDecoder.WM_DPICHANGED:
                 if (!IsPlacing)
                 {
@@ -1244,7 +1359,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
             return;
         }
 
-        // whichever list is under the pointer takes it, and the listing takes it when none is.
         if (!RouteWheel(_lastMouseX, _lastMouseY, delta))
         {
             ((Control)View).OnWheel(View.Bounds.left + 1, View.Bounds.top + 1, delta);
@@ -1259,7 +1373,17 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         _lastMouseY = y;
         SetHotButton(0);
 
-        // the splitter belongs to the window rather than to any control, it is the gap between two of them.
+        if (_pressedPosition >= 0 && Functions.GetKeyState((int)VIRTUAL_KEY.VK_LBUTTON) < 0)
+        {
+            var moved = new POINT { x = (int)x, y = (int)y };
+            if (IsDragDistance(_pressedPoint, moved))
+            {
+                _pressedPosition = -1;
+                BeginDrag();
+                return;
+            }
+        }
+
         if (_splitterDragging)
         {
             _paneWidth = (x - _splitterGrabOffset) / DpiScale;
@@ -1288,7 +1412,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         }
     }
 
-    // the preview only survives while the pointer stays on the one image it belongs to.
     private void DismissPreview()
     {
         _hoverTimer.Change(Timeout.Infinite, Timeout.Infinite);
@@ -1310,8 +1433,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         }
     }
 
-    // the first image in the listing, shown while the preview size is being chosen so the slider has something to act on.
-    // without it the slider moves against nothing, the menu holds the mouse so no file can be hovered.
     private void ShowPreviewSample()
     {
         if (!_preview.IsEnabled)
@@ -1374,7 +1495,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
 
     private void OnContextMenu(LPARAM lParam)
     {
-        // the coordinates are on the screen here, and are -1 when the keyboard asked for the menu.
         var point = new POINT { x = (short)(lParam.Value & 0xFFFF), y = (short)((lParam.Value >> 16) & 0xFFFF) };
         int position;
         if (point.x == -1 && point.y == -1)
@@ -1390,8 +1510,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         var onItem = position >= 0 && position < _items.Count;
         if (onItem)
         {
-            // a click inside the selection keeps it, so the menu is for everything chosen,
-            // and a click anywhere else makes that item the selection, which is what every file manager does.
             if (!View.Selection.Contains(position))
             {
                 View.Select(position);
@@ -1400,7 +1518,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
             RenderNow();
         }
 
-        // an item's menu comes from the item, the menu for the empty space around it comes from the folder.
         using var target = onItem ? ItemFor(position) : _location.Bind();
         if (target == null)
             return;
@@ -1414,21 +1531,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         var flags = ShellN.CMF.CMF_EXPLORE | ShellN.CMF.CMF_EXTENDEDVERBS | ShellN.CMF.CMF_CANRENAME;
         if (onItem)
         {
-            // everything selected, so the menu is the one Explorer shows for a set of files rather than for one,
-            // and they all come from the same listing, so they all share a parent.
-            var chosen = new List<ShellItem>();
-            foreach (var selected in View.Selection.Positions)
-            {
-                if (selected < 0 || selected >= _items.Count)
-                    continue;
-
-                var item = ItemFor(selected);
-                if (item != null)
-                {
-                    chosen.Add(item);
-                }
-            }
-
+            var chosen = SelectedItems();
             if (chosen.Count == 0)
             {
                 chosen.Add(target);
@@ -1481,7 +1584,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
 
         // a command may have renamed or deleted something, so the listing is read again. the view keeps its place, which a plain navigation would throw away.
         Functions.SetForegroundWindow(Handle);
-        //Refresh();
 
         HRESULT getVerb(ShellN.IContextMenu cm, HWND hwnd, uint id)
         {
@@ -1492,7 +1594,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         }
     }
 
-    // the folder is kept so the next run opens on it, and so the recent list has something to show.
     private void RememberLocation(ShellLocation location)
     {
         var name = location.ParsingName;
@@ -1509,7 +1610,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         _saveTimer.Change(_saveQuietMilliseconds, Timeout.Infinite);
     }
 
-    // the timer runs on its own thread, and everything it touches belongs to the UI one, so it only asks.
     private void OnSaveElapsed()
     {
         try
@@ -1518,7 +1618,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         }
         catch (Exception ex)
         {
-            // the window is on its way out, and Dispose writes the settings anyway.
             Application.TraceVerbose($"a settings save was dropped: {ex.Message}");
         }
     }
@@ -1533,7 +1632,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         SettingsFile.SaveLater(_settings);
     }
 
-    // on the way out there is no later, so the file is written before the window goes.
     private void SaveSettingsNow()
     {
         _savePending = false;
@@ -1541,8 +1639,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         SettingsFile.Save(_settings);
     }
 
-    // read at the moment of writing rather than tracked as it moves,
-    // because a window is moved and sized constantly and only the last of it matters.
     private void CapturePosition()
     {
         var position = WindowPosition.Get(this);
@@ -1557,7 +1653,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         _restoreScroll = View.ScrollOffset;
         _restoreSelection = View.Selection.Current;
 
-        // the same folder as before.
         _ = NavigateAsync(_location.ParsingName, _location);
     }
 
@@ -1599,9 +1694,25 @@ internal sealed class MainWindow : D3D11SwapChainWindow
                 view.SelectAt(_items.Count - 1);
                 break;
 
-            case VIRTUAL_KEY.VK_A when Functions.GetKeyState((int)VIRTUAL_KEY.VK_CONTROL) < 0:
+            case VIRTUAL_KEY.VK_A when Keyboard.IsControlDown:
                 view.SelectAll();
                 break;
+
+            case VIRTUAL_KEY.VK_C when Keyboard.IsControlDown:
+                WithSelectedIdLists(ClipboardOperations.Copy);
+                return true;
+
+            case VIRTUAL_KEY.VK_X when Keyboard.IsControlDown:
+                WithSelectedIdLists(ClipboardOperations.Cut);
+                return true;
+
+            case VIRTUAL_KEY.VK_V when Keyboard.IsControlDown:
+                PasteHere();
+                return true;
+
+            case VIRTUAL_KEY.VK_DELETE:
+                DeleteSelection(Keyboard.IsShiftDown);
+                return true;
 
             case VIRTUAL_KEY.VK_RETURN:
                 OnItemActivated(view.Selection.Current);
@@ -1875,7 +1986,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         }
     }
 
-    // where the window has been, most recent first, with the ways of forgetting under them.
     private List<MenuEntry> RecentEntries()
     {
         var entries = new List<MenuEntry>();
@@ -1915,8 +2025,6 @@ internal sealed class MainWindow : D3D11SwapChainWindow
         return entries;
     }
 
-    // the menu stays up while the shell is asked about every folder in it,
-    // and the rows go when the answers are in, which is the whole point of the command.
     private async Task ForgetMissingFoldersAsync()
     {
         if (!await SettingsFile.ForgetMissingFoldersAsync(_settings, ShellItems.Exists).ConfigureAwait(true))
@@ -1965,8 +2073,8 @@ internal sealed class MainWindow : D3D11SwapChainWindow
     {
         if (disposing)
         {
-            // written on the way out whether or not anything asked for it,
-            // because where the window ended up is never something that asked.
+            Functions.RevokeDragDrop(Handle);
+            _dropTarget.Dispose();
             _saveTimer.Dispose();
             SaveSettingsNow();
 

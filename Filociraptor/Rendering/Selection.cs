@@ -1,25 +1,35 @@
 ﻿namespace Filociraptor.Rendering;
 
-// what is selected in the listing, and the rules for changing it.
-// the two views share one, so a change of view keeps the selection.
 internal sealed class Selection
 {
     private readonly HashSet<int> _positions = [];
 
-    // the one a plain click landed on. it is what gets opened, and what the arrows move.
     public int Current { get; private set; } = -1;
 
-    // where a range starts, which is the last position chosen without a shift.
     public int Anchor { get; private set; } = -1;
 
+    public int Deferred { get; private set; } = -1;
+
     public int Count => _positions.Count;
+
     public bool Contains(int position) => _positions.Contains(position);
 
-    // in the order they appear, because that is the order anything asked about them expects.
     public IEnumerable<int> Positions => _positions.Order();
+
+    public void Defer(int position) => Deferred = position;
+
+    public bool ApplyDeferred()
+    {
+        if (Deferred < 0)
+            return false;
+
+        Set(Deferred);
+        return true;
+    }
 
     public void Clear()
     {
+        Deferred = -1;
         _positions.Clear();
         Current = -1;
         Anchor = -1;
@@ -28,6 +38,7 @@ internal sealed class Selection
     // a plain click, or an arrow key. everything else goes.
     public void Set(int position)
     {
+        Deferred = -1;
         _positions.Clear();
         if (position < 0)
         {
@@ -41,9 +52,10 @@ internal sealed class Selection
         Anchor = position;
     }
 
-    // control, which adds one or takes one away and moves the anchor there either way.
+    // CTRL, which adds one or takes one away and moves the anchor there either way.
     public void Toggle(int position)
     {
+        Deferred = -1;
         if (position < 0)
             return;
 
@@ -56,10 +68,10 @@ internal sealed class Selection
         Anchor = position;
     }
 
-    // shift, which is everything from the anchor to here and nothing else.
-    // the anchor stays where it was, so shifting again replaces the range rather than growing it.
+    // SHIFT, which is everything from the anchor to here and nothing else.
     public void ExtendTo(int position, int count)
     {
+        Deferred = -1;
         if (position < 0 || count <= 0)
             return;
 
@@ -82,6 +94,7 @@ internal sealed class Selection
 
     public void SetAll(int count)
     {
+        Deferred = -1;
         _positions.Clear();
         for (var i = 0; i < count; i++)
         {
