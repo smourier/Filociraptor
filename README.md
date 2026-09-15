@@ -11,6 +11,8 @@ The point of this project is speed. It exists to show that a managed, ahead of t
 **It is a demonstration, not a replacement for Explorer.** Explorer has decades of behaviour behind it, and this reads the file system directly wherever it can, asking the shell only where there is no folder on disk to read. 
 What is here, though, is not a mock up. It browses, sorts, previews and opens real files, at speeds Explorer does not reach, and it is pleasant enough to use for real work.
 
+Its evolution is [Treemapolis](https://github.com/smourier/Treemapolis), the same approach and the same libraries taken to three dimensions: the whole shell namespace as a city of files you fly through, drawn with Direct3D 12 and read from the master file table when it can be.
+
 ## Numbers
 
 Measured with the built in benchmark, Release NativeAOT x64, warm file system cache, best of three runs.
