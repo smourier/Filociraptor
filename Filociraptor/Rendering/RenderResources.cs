@@ -90,11 +90,11 @@ internal sealed class RenderResources : IDisposable
         CaptionGlyphFormat.Object.SetTextAlignment(DWRITE_TEXT_ALIGNMENT.DWRITE_TEXT_ALIGNMENT_CENTER);
 
         using var sample = factory.CreateTextLayout(RowFormat, _widthSample);
-        sample.Object.GetMetrics(out var metrics);
+        var metrics = sample.GetMetrics();
         AverageCharacterWidth = MathF.Max(1, metrics.width / _widthSample.Length);
 
         using var captionSample = factory.CreateTextLayout(CaptionFormat, _widthSample);
-        captionSample.Object.GetMetrics(out var captionMetrics);
+        var captionMetrics = captionSample.GetMetrics();
         CaptionCharacterWidth = MathF.Max(1, captionMetrics.width / _widthSample.Length);
 
         var translucent = settings.Backdrop != Backdrop.None;

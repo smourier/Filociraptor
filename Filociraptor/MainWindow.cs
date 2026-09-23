@@ -482,27 +482,21 @@ internal sealed class MainWindow : D3D11SwapChainWindow
     private void CreateComposition()
     {
         using var dxgiDevice = _device!.As<IDXGIDevice>()!;
-        var iid = typeof(IDCompositionDevice).GUID;
-        var created = Functions.DCompositionCreateDevice(dxgiDevice.Object, iid, out var unknown);
-        if (created.IsError || unknown == 0)
+        try
         {
-            Application.TraceError($"no composition device: {created}.");
+            _compositionDevice = DCompositionFunctions.DCompositionCreateDevice(dxgiDevice);
+        }
+        catch (Exception e)
+        {
+            Application.TraceError($"no composition device: {e.Message}");
             return;
         }
 
-        _compositionDevice = DirectN.Extensions.Com.ComObject.FromPointer<IDCompositionDevice>(unknown);
-        if (_compositionDevice == null)
-            return;
-
-        _compositionDevice.Object.CreateTargetForHwnd(Handle, true, out var target).ThrowOnError();
-        _compositionTarget = new ComObject<IDCompositionTarget>(target);
-
-        _compositionDevice.Object.CreateVisual(out var visual).ThrowOnError();
-        _compositionVisual = new ComObject<IDCompositionVisual>(visual);
-
-        _compositionVisual.Object.SetContent(_swapChain.ToComInstanceNoAddRef()).ThrowOnError();
-        _compositionTarget.Object.SetRoot(_compositionVisual.Object).ThrowOnError();
-        _compositionDevice.Object.Commit().ThrowOnError();
+        _compositionTarget = _compositionDevice.CreateTargetForHwnd(Handle);
+        _compositionVisual = _compositionDevice.CreateVisual();
+        _compositionVisual.SetContent(_swapChain);
+        _compositionTarget.SetRoot(_compositionVisual);
+        _compositionDevice.Commit();
     }
 
     // there is no IDXGIFactory2 before Windows 8.
@@ -2188,8 +2182,7 @@ internal sealed class MainWindow : D3D11SwapChainWindow
     {
         try
         {
-            family.Object.GetFont(0, out var font).ThrowOnError();
-            using var first = new ComObject<IDWriteFont>(font);
+            using var first = family.GetFont(0);
             return first.Object.IsSymbolFont();
         }
         catch
