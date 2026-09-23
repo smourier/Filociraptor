@@ -48,10 +48,10 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="DirectNAot" Version="1.6.8" />
-		<PackageReference Include="DirectNAot.Extensions" Version="1.6.8" />
+		<PackageReference Include="DirectNAot" Version="1.6.9" />
+		<PackageReference Include="DirectNAot.Extensions" Version="1.6.9" />
 		<PackageReference Include="ShellN" Version="1.0.8" />
-		<PackageReference Include="WicNetCore" Version="1.9.6" />
+		<PackageReference Include="WicNetCore" Version="1.9.7" />
 		<PackageReference Include="ShellN.Extensions" Version="1.0.8" />
 	</ItemGroup>
 
