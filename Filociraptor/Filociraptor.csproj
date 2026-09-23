@@ -48,11 +48,18 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="DirectNAot" Version="1.6.9" />
-		<PackageReference Include="DirectNAot.Extensions" Version="1.6.9" />
-		<PackageReference Include="ShellN" Version="1.0.8" />
-		<PackageReference Include="WicNetCore" Version="1.9.7" />
-		<PackageReference Include="ShellN.Extensions" Version="1.0.8" />
+		<PackageReference Include="DirectNAot" Version="1.7.0" />
+		<PackageReference Include="DirectNAot.Extensions" Version="1.7.0" />
+		<PackageReference Include="ShellN" Version="1.1.0" />
+		<PackageReference Include="WicNetCore" Version="1.9.8" />
+		<PackageReference Include="ShellN.Extensions" Version="1.1.0" />
+	</ItemGroup>
+
+	<!-- traces show HRESULT names and the window keeps its "About" system menu, DirectN trims both from an AOT build unless asked.
+	     Trim is what makes the AOT compiler see them. -->
+	<ItemGroup>
+		<RuntimeHostConfigurationOption Include="DirectN.HRESULT.IsNameLookupSupported" Value="true" Trim="true" />
+		<RuntimeHostConfigurationOption Include="DirectN.Extensions.Window.IsAboutSysMenuSupported" Value="true" Trim="true" />
 	</ItemGroup>
 
 	<ItemGroup>
