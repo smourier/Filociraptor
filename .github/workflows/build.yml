@@ -60,7 +60,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: '11.0.x'
 
       # the point of caching this is the ILCompiler runtime packs, hundreds of megabytes that are otherwise
       # downloaded again on every cold run.

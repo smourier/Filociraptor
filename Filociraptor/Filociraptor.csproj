@@ -2,7 +2,7 @@
 
 	<PropertyGroup>
 		<OutputType>WinExe</OutputType>
-		<TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+		<TargetFramework>net11.0-windows10.0.19041.0</TargetFramework>
 		<AssemblyName>filo</AssemblyName>
 		<RootNamespace>Filociraptor</RootNamespace>
 		<Nullable>enable</Nullable>
@@ -48,11 +48,11 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="DirectNAot" Version="1.7.1" />
-		<PackageReference Include="DirectNAot.Extensions" Version="1.7.1" />
-		<PackageReference Include="ShellN" Version="1.1.0" />
-		<PackageReference Include="WicNetCore" Version="1.9.8" />
-		<PackageReference Include="ShellN.Extensions" Version="1.1.0" />
+		<PackageReference Include="DirectNAot" Version="1.8.0" />
+		<PackageReference Include="DirectNAot.Extensions" Version="1.8.0" />
+		<PackageReference Include="ShellN" Version="1.2.0" />
+		<PackageReference Include="WicNetCore" Version="1.9.9" />
+		<PackageReference Include="ShellN.Extensions" Version="1.2.0" />
 	</ItemGroup>
 
 	<!-- traces show HRESULT names and the window keeps its "About" system menu, DirectN trims both from an AOT build unless asked.
